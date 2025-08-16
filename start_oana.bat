@@ -58,7 +58,7 @@ if %errorlevel% neq 0 (
 
 :: Start the backend server
 echo Starting backend server...
-start cmd /k "cd backend && call venv\Scripts\activate && python app.py"
+start cmd /k "call start_backend.bat"
 
 :: Give the backend a moment to start
 echo Waiting for backend to initialize...
@@ -66,7 +66,7 @@ timeout /t 5 /nobreak > nul
 
 :: Start the Tauri frontend
 echo Starting frontend application...
-start cmd /k "cd frontend && npm run tauri dev"
+start cmd /k "call start_frontend.bat"
 
 echo.
 echo OANA is starting up! The application window should appear shortly.
