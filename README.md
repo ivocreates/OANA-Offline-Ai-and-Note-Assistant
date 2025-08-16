@@ -120,9 +120,10 @@ If you encounter any issues:
     pip install -r backend/requirements.compatible.txt
     ```
 - **Model Compatibility Issues**: 
-  - If you see `unknown model architecture: 'phi2'`, try using a different LLM model compatible with llama-cpp-python:
-    - Update `config.py` to use a different model file, such as `mistral-7b-v0.1.Q4_K_M.gguf`
-    - Download the recommended model file using `download_model.bat` or manually place it in the `data/models` directory
+  - If you see `unknown model architecture: 'phi2'`, use our improved model handling:
+    - Run the updated `download_model.bat` and select option 2 for the Mistral model or option 3 for TinyLlama
+    - Alternatively, the application now includes fallback mechanisms to automatically try other models in the `data/models` directory
+    - The latest version supports Phi-2, Mistral, and other GGUF models with auto-detection
 
 ## Detailed Project Structure
 
