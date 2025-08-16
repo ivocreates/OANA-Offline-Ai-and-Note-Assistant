@@ -381,6 +381,245 @@ async def change_llm_model(
             detail=f"Error loading model: {str(e)}"
         )
 
+@app.post("/study-tips")
+async def get_study_tips(
+    doc_id: str = Form(...),
+    subject: Optional[str] = Form(None)
+):
+    """
+    Generate study tips for a specific document and subject
+    """
+    # Check if document exists and is processed
+    doc_dir = os.path.join(settings.documents_dir, doc_id)
+    if not os.path.exists(doc_dir):
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Read metadata to check status
+    metadata_path = os.path.join(doc_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    
+    if metadata["status"] != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Document is still being processed or had an error"
+        )
+    
+    # Prepare query for study tips
+    subject_text = f" for {subject}" if subject else ""
+    query = f"Generate 5 effective study tips{subject_text} based on this document."
+    
+    # Get response from RAG engine
+    tips = rag_engine.query(
+        query=query,
+        doc_id=doc_id,
+        chat_history=[]
+    )
+    
+    return {
+        "document_id": doc_id,
+        "subject": subject,
+        "study_tips": tips
+    }
+
+@app.post("/flashcards")
+async def generate_flashcards(
+    doc_id: str = Form(...),
+    count: int = Form(10)
+):
+    """
+    Generate flashcards for studying a document
+    """
+    # Check if document exists and is processed
+    doc_dir = os.path.join(settings.documents_dir, doc_id)
+    if not os.path.exists(doc_dir):
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Read metadata to check status
+    metadata_path = os.path.join(doc_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    
+    if metadata["status"] != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Document is still being processed or had an error"
+        )
+    
+    # Prepare query for flashcards
+    query = f"Generate {count} flashcards in JSON format with 'question' and 'answer' fields based on this document."
+    
+    # Get response from RAG engine
+    flashcards_response = rag_engine.query(
+        query=query,
+        doc_id=doc_id,
+        chat_history=[]
+    )
+    
+    # Try to extract JSON from response
+    try:
+        # Look for JSON in the response
+        import re
+        json_match = re.search(r'```json\n([\s\S]*?)\n```', flashcards_response) or \
+                     re.search(r'```\n([\s\S]*?)\n```', flashcards_response) or \
+                     re.search(r'\[([\s\S]*?)\]', flashcards_response)
+        
+        if json_match:
+            json_str = json_match.group(1)
+            if not json_str.startswith('['):
+                json_str = '[' + json_str + ']'
+            flashcards = json.loads(json_str)
+        else:
+            # If no JSON format is found, return the raw response
+            flashcards = {"raw_response": flashcards_response}
+    except Exception as e:
+        logger.error(f"Error parsing flashcards JSON: {str(e)}")
+        flashcards = {"raw_response": flashcards_response, "error": str(e)}
+    
+    return {
+        "document_id": doc_id,
+        "flashcards": flashcards
+    }
+
+@app.post("/chat-conversation")
+async def chat_conversation(
+    query: str = Form(...),
+    doc_id: str = Form(...),
+    conversation_id: Optional[str] = Form(None),
+    conversation_title: Optional[str] = Form(None)
+):
+    """
+    Chat with an uploaded document and save the conversation to the server
+    """
+    # Check if document exists and is processed
+    doc_dir = os.path.join(settings.documents_dir, doc_id)
+    if not os.path.exists(doc_dir):
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Read metadata to check status
+    metadata_path = os.path.join(doc_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    
+    if metadata["status"] != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Document is still being processed or had an error"
+        )
+    
+    # Create or load conversation
+    if conversation_id:
+        conversation_path = os.path.join(settings.conversations_dir, f"{conversation_id}.json")
+        if os.path.exists(conversation_path):
+            with open(conversation_path, "r") as f:
+                conversation = json.load(f)
+            chat_history = conversation.get("messages", [])
+        else:
+            # If conversation ID doesn't exist, create a new one
+            conversation_id = str(uuid.uuid4())
+            conversation_path = os.path.join(settings.conversations_dir, f"{conversation_id}.json")
+            chat_history = []
+            conversation = {
+                "id": conversation_id,
+                "title": conversation_title or "Untitled Conversation",
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "document_id": doc_id,
+                "messages": chat_history
+            }
+    else:
+        # Create new conversation
+        conversation_id = str(uuid.uuid4())
+        conversation_path = os.path.join(settings.conversations_dir, f"{conversation_id}.json")
+        chat_history = []
+        conversation = {
+            "id": conversation_id,
+            "title": conversation_title or "Untitled Conversation",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "document_id": doc_id,
+            "messages": chat_history
+        }
+    
+    # Add user message to history
+    user_message = {"role": "user", "content": query}
+    chat_history.append(user_message)
+    
+    # Get response from RAG engine
+    response = rag_engine.query(
+        query=query,
+        doc_id=doc_id,
+        chat_history=chat_history
+    )
+    
+    # Add assistant response to history
+    assistant_message = {"role": "assistant", "content": response}
+    chat_history.append(assistant_message)
+    
+    # Update and save conversation
+    conversation["messages"] = chat_history
+    with open(conversation_path, "w") as f:
+        json.dump(conversation, f, indent=2)
+    
+    # Return response
+    return {
+        "conversation_id": conversation_id,
+        "query": query,
+        "response": response,
+        "document_id": doc_id,
+        "history": chat_history
+    }
+
+@app.get("/conversations")
+async def list_conversations():
+    """
+    List all conversation history stored on the server
+    """
+    conversations = []
+    
+    # Loop through conversation files
+    for filename in os.listdir(settings.conversations_dir):
+        if filename.endswith('.json'):
+            file_path = os.path.join(settings.conversations_dir, filename)
+            with open(file_path, 'r') as f:
+                conversation = json.load(f)
+                # Add a summary of the conversation
+                conversation_summary = {
+                    "id": os.path.splitext(filename)[0],
+                    "title": conversation.get("title", "Untitled Conversation"),
+                    "timestamp": conversation.get("timestamp", "Unknown"),
+                    "document_id": conversation.get("document_id", None),
+                    "message_count": len(conversation.get("messages", [])),
+                }
+                conversations.append(conversation_summary)
+    
+    return {"conversations": conversations}
+
+@app.get("/conversation/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """
+    Get a specific conversation by ID
+    """
+    conversation_path = os.path.join(settings.conversations_dir, f"{conversation_id}.json")
+    if not os.path.exists(conversation_path):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    with open(conversation_path, "r") as f:
+        conversation = json.load(f)
+    
+    return conversation
+
+@app.delete("/conversation/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """
+    Delete a specific conversation by ID
+    """
+    conversation_path = os.path.join(settings.conversations_dir, f"{conversation_id}.json")
+    if not os.path.exists(conversation_path):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    os.remove(conversation_path)
+    
+    return {"message": "Conversation deleted successfully"}
+
 @app.get("/health")
 async def health_check():
     """

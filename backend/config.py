@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     documents_dir: Path = data_dir / "documents"
     embeddings_dir: Path = data_dir / "embeddings"
     models_dir: Path = data_dir / "models"
+    conversations_dir: Path = data_dir / "conversations"
     
     # Model settings
     embeddings_model: str = "all-MiniLM-L6-v2"  # Default lightweight embedding model
@@ -35,3 +36,4 @@ class Settings(BaseSettings):
         os.makedirs(self.documents_dir, exist_ok=True)
         os.makedirs(self.embeddings_dir, exist_ok=True)
         os.makedirs(self.models_dir, exist_ok=True)
+        os.makedirs(self.conversations_dir, exist_ok=True)

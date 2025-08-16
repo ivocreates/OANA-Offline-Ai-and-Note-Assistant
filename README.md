@@ -6,8 +6,14 @@ OANA is a privacy-first, offline-capable AI assistant that allows students and r
 
 - **Note Upload**: Support for PDF, DOCX, TXT, and Markdown files
 - **Chat Interface**: Natural language Q&A with your uploaded notes
+- **Conversation History**: Save, browse, and continue past conversations
 - **Summarization**: Generate summaries of your notes
 - **Semantic Search**: Search your notes using natural language
+- **Study Tools**: 
+  - Interactive flashcards for memorization
+  - Auto-generated quizzes to test your knowledge
+  - Study tips based on your materials
+  - Note-taking functionality
 - **Offline LLMs**: Runs completely offline using lightweight LLMs
 - **Local Data Storage**: All data stays on your device
 - **Cross-platform**: Works on Windows, macOS, and Linux
