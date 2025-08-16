@@ -51,7 +51,27 @@ app.add_middleware(
 document_parser = DocumentParser()
 embeddings_generator = EmbeddingsGenerator(model_name=settings.embeddings_model)
 vector_store = VectorStore(embeddings_dir=settings.embeddings_dir)
-llm = LocalLLM(model_path=os.path.join(settings.models_dir, settings.llm_model_file))
+
+try:
+    # Try to load the specified model, with fallback to any other available models
+    llm = LocalLLM(
+        model_path=os.path.join(settings.models_dir, settings.llm_model_file),
+        fallback_dir=settings.models_dir
+    )
+    # Update the settings with the actual model being used (in case a fallback was loaded)
+    if os.path.basename(llm.model_path) != settings.llm_model_file:
+        logger.warning(f"Using fallback model: {os.path.basename(llm.model_path)}")
+        settings.llm_model_file = os.path.basename(llm.model_path)
+except Exception as e:
+    logger.error(f"Failed to load any LLM model: {str(e)}")
+    # Create a dummy LLM that returns error messages
+    class DummyLLM:
+        def generate(self, prompt, **kwargs):
+            return "ERROR: No LLM model could be loaded. Please check that you have a compatible GGUF model in the data/models directory."
+        def test(self):
+            return False
+    llm = DummyLLM()
+
 rag_engine = RAGEngine(embeddings_generator=embeddings_generator, 
                        vector_store=vector_store, 
                        llm=llm)
