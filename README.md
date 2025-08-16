@@ -109,6 +109,10 @@ If you encounter any issues:
     ```
     pip install huggingface_hub==0.16.4 transformers==4.30.2 sentence-transformers==2.2.2
     ```
+  - Alternatively, use the compatible requirements file:
+    ```
+    pip install -r backend/requirements.compatible.txt
+    ```
 - **Model Compatibility Issues**: 
   - If you see `unknown model architecture: 'phi2'`, try using a different LLM model compatible with llama-cpp-python:
     - Update `config.py` to use a different model file, such as `mistral-7b-v0.1.Q4_K_M.gguf`
