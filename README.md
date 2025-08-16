@@ -104,6 +104,15 @@ If you encounter any issues:
 - **Backend Not Starting**: Check Python version (3.8+ required) and verify all dependencies are installed
 - **Frontend Not Starting**: Ensure Rust and Tauri CLI are properly installed
 - **Connection Error**: Make sure backend server is running on port 8000
+- **Dependency Conflicts**:
+  - If you see `ImportError: cannot import name 'cached_download' from 'huggingface_hub'`, run:
+    ```
+    pip install huggingface_hub==0.16.4 transformers==4.30.2 sentence-transformers==2.2.2
+    ```
+- **Model Compatibility Issues**: 
+  - If you see `unknown model architecture: 'phi2'`, try using a different LLM model compatible with llama-cpp-python:
+    - Update `config.py` to use a different model file, such as `mistral-7b-v0.1.Q4_K_M.gguf`
+    - Download the recommended model file using `download_model.bat` or manually place it in the `data/models` directory
 
 ## Detailed Project Structure
 
