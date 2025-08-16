@@ -1,0 +1,16 @@
+fastapi==0.103.1
+uvicorn==0.23.2
+python-multipart==0.0.6
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+pypdf==3.15.1
+python-docx==1.0.0
+llama-cpp-python==0.2.11
+spacy==3.6.1
+nltk==3.8.1
+pydantic==2.3.0
+langchain==0.0.267
+langchain_community==0.0.11
+unstructured==0.10.30
+numpy==1.24.3
+pydantic-settings==2.0.3

@@ -1,0 +1,7 @@
+# Place your GGUF model files here
+# Recommended models:
+# - phi-2.Q4_K_M.gguf (1.6GB) - Best balance of size and quality
+# - mistral-7b-v0.1.Q4_K_M.gguf (3.8GB) - Better quality, larger size
+#
+# Download from: https://huggingface.co/TheBloke/Phi-2-GGUF/tree/main
+# or: https://huggingface.co/TheBloke/Mistral-7B-v0.1-GGUF/tree/main
