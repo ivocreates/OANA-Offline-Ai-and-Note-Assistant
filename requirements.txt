@@ -1,0 +1,42 @@
+# Core dependencies for Offline AI ChatBot
+
+# GUI Framework (included with Python)
+# tkinter - already included with Python
+
+# PDF Processing
+PyMuPDF>=1.23.0
+
+# Word Document Processing  
+python-docx>=0.8.11
+docx2txt>=0.8
+
+# AI Backends (choose one or more)
+# Option 1: llama-cpp-python (recommended for local GGUF models)
+llama-cpp-python>=0.2.0
+
+# Option 2: Ollama (alternative, requires Ollama installed separately)
+# ollama>=0.1.7
+
+# Option 3: Transformers (for Hugging Face models)
+# torch>=2.0.0
+# transformers>=4.30.0
+
+# Text Processing
+nltk>=3.8.1
+
+# Utilities
+requests>=2.31.0
+numpy>=1.24.0
+
+# PDF Generation (for export functionality)
+weasyprint>=60.0
+
+# Optional: For better text extraction
+textract>=1.6.5
+
+# Optional: For advanced PDF processing
+pdfplumber>=0.9.0
+
+# Development dependencies (optional)
+# pyinstaller>=5.13.0  # For creating executables
+# auto-py-to-exe>=2.36.0  # GUI for PyInstaller

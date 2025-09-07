@@ -1,0 +1,16 @@
+{
+  "chat_history": [
+    {
+      "sender": "System",
+      "content": "Chat cleared",
+      "timestamp": "19:40:45"
+    }
+  ],
+  "documents": [
+    {
+      "name": "teach me how to solve this problems on the attache.docx",
+      "upload_time": "2025-09-06 19:34:36"
+    }
+  ],
+  "save_time": "2025-09-06T19:53:31.427497"
+}

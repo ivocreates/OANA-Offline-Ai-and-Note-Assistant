@@ -1,0 +1,21 @@
+{
+  "theme": "light",
+  "auto_save_chat": true,
+  "chat_history_limit": 1000,
+  "auto_export_format": "txt",
+  "ai_settings": {
+    "temperature": 0.7,
+    "max_tokens": 512,
+    "top_p": 0.9,
+    "system_prompt": "You are OANA, a helpful offline AI assistant specialized in document analysis and note-taking."
+  },
+  "ui_settings": {
+    "font_size": 10,
+    "show_timestamps": true,
+    "compact_mode": false
+  },
+  "model_settings": {
+    "preferred_backend": "llama-cpp",
+    "auto_load_model": true
+  }
+}
