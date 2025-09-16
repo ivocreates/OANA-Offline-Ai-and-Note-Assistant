@@ -155,9 +155,16 @@ class OANA:
         self.chat_history = []
         self.uploaded_documents = []
         self.current_context = ""
-        self.current_session_id = "default"
+        self.current_session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.settings = self._load_settings()
         
+        # Create new chat session
+        if self.db:
+            try:
+                self.db.create_chat_session(self.current_session_id)
+            except Exception as e:
+                print(f"Failed to create chat session: {e}")
+                
         # Apply theme
         self.apply_theme()
         
@@ -275,21 +282,93 @@ class OANA:
             print(f"Error saving settings: {e}")
             
     def apply_theme(self):
-        """Apply current theme"""
+        """Apply current theme and refresh all UI elements"""
         theme = self.themes[self.settings.get("theme", "light")]
         self.root.configure(bg=theme["bg"])
+        
+        # Refresh styles with new theme
+        self.setup_styles()
+        
+        # Update existing UI elements if they exist
+        if hasattr(self, 'chat_display'):
+            self.chat_display.configure(
+                bg=theme["entry_bg"], 
+                fg=theme["fg"],
+                selectbackground=theme["select_bg"],
+                selectforeground=theme["select_fg"]
+            )
+            
+        if hasattr(self, 'message_entry'):
+            self.message_entry.configure(
+                bg=theme["entry_bg"],
+                fg=theme["fg"],
+                insertbackground=theme["fg"]
+            )
+            
+        # Update any text widgets
+        for widget in self.root.winfo_children():
+            self._update_widget_theme(widget, theme)
+    
+    def _update_widget_theme(self, widget, theme):
+        """Recursively update widget themes"""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class == 'Text':
+                widget.configure(
+                    bg=theme["entry_bg"],
+                    fg=theme["fg"],
+                    selectbackground=theme["select_bg"],
+                    selectforeground=theme["select_fg"],
+                    insertbackground=theme["fg"]
+                )
+            elif widget_class == 'Entry':
+                widget.configure(
+                    bg=theme["entry_bg"],
+                    fg=theme["fg"],
+                    selectbackground=theme["select_bg"],
+                    selectforeground=theme["select_fg"],
+                    insertbackground=theme["fg"]
+                )
+            elif widget_class == 'Frame':
+                widget.configure(bg=theme["bg"])
+            elif widget_class == 'Label':
+                widget.configure(bg=theme["bg"], fg=theme["fg"])
+                
+            # Recursively update children
+            for child in widget.winfo_children():
+                self._update_widget_theme(child, theme)
+                
+        except Exception:
+            # Some widgets might not support certain options
+            pass
         
     def setup_styles(self):
         """Setup enhanced ttk styles for modern theming"""
         style = ttk.Style()
         theme = self.themes[self.settings.get("theme", "light")]
         
+        # Configure default ttk button style to ensure all buttons have proper theming
+        style.configure("TButton",
+                       padding=(12, 8),
+                       relief="flat",
+                       borderwidth=0,
+                       font=("Segoe UI", 9, "bold"),
+                       background=theme["button_bg"],
+                       foreground=theme["button_fg"])
+        
+        style.map("TButton",
+                  background=[('active', theme["button_hover"]),
+                            ('pressed', theme["accent"]),
+                            ('disabled', theme["border"])],
+                  foreground=[('disabled', theme["fg"])])
+        
         # Configure modern button styles with hover effects
         style.configure("Modern.TButton",
                        padding=(12, 8),
                        relief="flat",
                        borderwidth=0,
-                       font=("Segoe UI", 9),
+                       font=("Segoe UI", 9, "bold"),
                        background=theme["button_bg"],
                        foreground=theme["button_fg"])
         
@@ -298,6 +377,11 @@ class OANA:
                             ('pressed', theme["accent"])])
         
         # Enhanced label styles
+        style.configure("TLabel", 
+                       font=("Segoe UI", 9), 
+                       foreground=theme["fg"],
+                       background=theme["bg"])
+        
         style.configure("Title.TLabel", 
                        font=("Segoe UI", 16, "bold"), 
                        foreground=theme["accent"],
@@ -325,7 +409,6 @@ class OANA:
                        borderwidth=1,
                        fieldbackground=theme["entry_bg"],
                        foreground=theme["fg"],
-                       insertcolor=theme["fg"],
                        font=("Segoe UI", 9))
         
         # Enhanced treeview styles
@@ -340,24 +423,52 @@ class OANA:
                        foreground=theme["fg"],
                        font=("Segoe UI", 9, "bold"))
         
-        # Button variants
+        # Button variants with high contrast
         style.configure("Success.TButton", 
                        background=theme["success"],
-                       foreground="white")
+                       foreground="white",
+                       font=("Segoe UI", 9, "bold"))
         style.map("Success.TButton",
-                  background=[('active', '#219a52')])
+                  background=[('active', '#219a52'),
+                            ('pressed', '#1e8449')])
         
         style.configure("Warning.TButton", 
                        background=theme["warning"],
-                       foreground="white")
+                       foreground="white",
+                       font=("Segoe UI", 9, "bold"))
         style.map("Warning.TButton",
-                  background=[('active', '#e67e22')])
+                  background=[('active', '#e67e22'),
+                            ('pressed', '#d35400')])
         
         style.configure("Danger.TButton", 
                        background=theme["danger"],
-                       foreground="white")
+                       foreground="white",
+                       font=("Segoe UI", 9, "bold"))
         style.map("Danger.TButton",
-                  background=[('active', '#c0392b')])
+                  background=[('active', '#c0392b'),
+                            ('pressed', '#a93226')])
+        
+        style.configure("Info.TButton", 
+                       background=theme["accent"],
+                       foreground="white",
+                       font=("Segoe UI", 9, "bold"))
+        style.map("Info.TButton",
+                  background=[('active', theme["button_hover"]),
+                            ('pressed', '#2471a3')])
+        
+        # Enhanced frame styles
+        style.configure("TFrame",
+                       background=theme["bg"],
+                       relief="flat")
+        
+        style.configure("Card.TFrame",
+                       background=theme["panel_bg"],
+                       relief="flat",
+                       borderwidth=1)
+        
+        # Enhanced panedwindow styles
+        style.configure("TPanedwindow",
+                       background=theme["bg"])
         
         # Enhanced notebook styles
         style.configure("Modern.TNotebook",
@@ -440,6 +551,9 @@ class OANA:
         # Tools menu
         tools_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
         menubar.add_cascade(label=self.get_emoji_label("🔧", "Tools"), menu=tools_menu)
+        tools_menu.add_command(label=self.get_emoji_label("🤖", "AI Model Selector"), 
+                              command=self.show_model_selector)
+        tools_menu.add_separator()
         tools_menu.add_command(label=self.get_emoji_label("📊", "Statistics"), 
                               command=self.show_statistics)
         tools_menu.add_command(label=self.get_emoji_label("🗂️", "File Manager"), 
@@ -650,7 +764,7 @@ class OANA:
             highlightthickness=1,
             highlightcolor=theme["accent"],
             highlightbackground=theme["border"],
-            insertcolor=theme["fg"]
+            insertbackground=theme["fg"]
         )
         self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 15))
         self.message_entry.bind("<Return>", self.send_message)
@@ -1020,6 +1134,42 @@ class OANA:
         self.chat_display.configure(state=tk.DISABLED)
         self.chat_display.see(tk.END)
         
+    def add_message_to_display_only(self, sender, message):
+        """Add message to display without saving to database (for loading sessions)"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # Add to display with enhanced styling
+        self.chat_display.configure(state=tk.NORMAL)
+        
+        # Add visual separator for better readability
+        if self.chat_display.get("1.0", "end-1c"):  # If display is not empty
+            self.chat_display.insert(tk.END, "\n" + "─" * 50 + "\n")
+        
+        # Format message with enhanced styling
+        if sender == "You":
+            self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+            self.chat_display.insert(tk.END, f"{self.get_emoji_label('🧑', 'You')}:\n", "user")
+            self.chat_display.insert(tk.END, f"{message}\n", "user_msg")
+        elif sender == "AI":
+            self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+            self.chat_display.insert(tk.END, f"{self.get_emoji_label('🤖', 'AI')}:\n", "assistant")
+            self.chat_display.insert(tk.END, f"{message}\n", "ai_msg")
+        else:
+            self.chat_display.insert(tk.END, f"\n[{timestamp}] ℹ️  {sender}:\n", "system")
+            self.chat_display.insert(tk.END, f"{message}\n", "system_msg")
+            
+        # Configure tags for styling
+        self.chat_display.tag_configure("user", foreground="blue", font=("Arial", 10, "bold"))
+        self.chat_display.tag_configure("assistant", foreground="green", font=("Arial", 10, "bold"))
+        self.chat_display.tag_configure("system", foreground="gray", font=("Arial", 10, "bold"))
+        self.chat_display.tag_configure("user_msg", font=("Arial", 10))
+        self.chat_display.tag_configure("ai_msg", font=("Arial", 10))
+        self.chat_display.tag_configure("system_msg", font=("Arial", 9), foreground="gray")
+        self.chat_display.tag_configure("timestamp", font=("Arial", 8), foreground="gray")
+        
+        self.chat_display.configure(state=tk.DISABLED)
+        self.chat_display.see(tk.END)
+        
     def summarize_selected(self):
         """Summarize selected document"""
         selection = self.doc_tree.selection()
@@ -1148,52 +1298,30 @@ class OANA:
         
     # New enhanced methods
     def save_chat_history(self):
-        """Save chat history with timestamp"""
+        """Save current chat to database with title"""
         if not self.chat_history:
             messagebox.showwarning("Warning", "No chat history to save")
             return
             
-        filename = filedialog.asksaveasfilename(
-            title="Save chat history",
-            defaultextension=".json",
-            filetypes=[
-                ("JSON files", "*.json"),
-                ("Text files", "*.txt"),
-                ("HTML files", "*.html"),
-                ("Markdown files", "*.md")
-            ]
+        # Ask for a title for this chat session
+        title = simpledialog.askstring(
+            "Save Chat", 
+            "Enter a title for this chat:",
+            initialvalue=self.db.generate_chat_summary(self.current_session_id) if self.db else f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
         
-        if filename:
+        if title and self.db:
             try:
-                ext = Path(filename).suffix.lower()
-                if ext == '.json':
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        json.dump({
-                            'chat_history': self.chat_history,
-                            'documents': [{'name': doc['name'], 'upload_time': doc['upload_time']} for doc in self.uploaded_documents],
-                            'export_time': datetime.now().isoformat(),
-                            'app_version': 'OANA v1.0'
-                        }, f, indent=2, ensure_ascii=False)
-                elif ext == '.html':
-                    self.export_chat_html(filename)
-                    return
-                elif ext == '.md':
-                    self.export_chat_markdown(filename)
-                    return
-                else:
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        f.write(f"OANA Chat History - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write("=" * 60 + "\n\n")
-                        for msg in self.chat_history:
-                            f.write(f"[{msg['timestamp']}] {msg['sender']}:\n")
-                            f.write(f"{msg['content']}\n\n")
-                            
-                self.status_var.set(f"Chat history saved: {Path(filename).name}")
-                messagebox.showinfo("Success", "Chat history saved successfully")
-                
+                # Update session title and generate summary
+                summary = self.db.generate_chat_summary(self.current_session_id)
+                self.db.update_chat_session(self.current_session_id, title=title, summary=summary)
+                messagebox.showinfo("Success", f"Chat saved successfully as '{title}'")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to save chat history: {str(e)}")
+                messagebox.showerror("Error", f"Failed to save chat: {str(e)}")
+        elif not self.db:
+            messagebox.showerror("Error", "Database not available")
+        else:
+            messagebox.showinfo("Cancelled", "Chat not saved")
                 
     def export_chat_pdf(self):
         """Export chat as PDF"""
@@ -1359,18 +1487,18 @@ class OANA:
         return html
         
     def auto_save_chat_history(self):
-        """Auto-save chat history"""
+        """Auto-save chat to database"""
         try:
-            data_dir = Path(__file__).parent / "data" / "chat_history"
-            data_dir.mkdir(parents=True, exist_ok=True)
-            
-            filename = data_dir / f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'chat_history': self.chat_history,
-                    'documents': [{'name': doc['name'], 'upload_time': doc['upload_time']} for doc in self.uploaded_documents],
-                    'save_time': datetime.now().isoformat()
-                }, f, indent=2, ensure_ascii=False)
+            if self.db and self.chat_history:
+                # Update session with auto-generated title if not already set
+                sessions = self.db.get_chat_sessions(1)
+                current_session = next((s for s in sessions if s['session_id'] == self.current_session_id), None)
+                
+                if current_session and not current_session.get('title'):
+                    # Generate title from chat content
+                    title = f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    summary = self.db.generate_chat_summary(self.current_session_id)
+                    self.db.update_chat_session(self.current_session_id, title=title, summary=summary)
                 
         except Exception as e:
             print(f"Auto-save failed: {e}")
@@ -1382,18 +1510,36 @@ class OANA:
             
         result = messagebox.askyesnocancel(
             "Clear Chat History",
-            "Do you want to save the current chat before clearing?\n\n"
-            "Yes: Save and clear\n"
-            "No: Clear without saving\n"
-            "Cancel: Don't clear"
+            "Do you want to save the current chat before starting a new one?\n\n"
+            "Yes: Save current and start new chat\n"
+            "No: Start new chat without saving\n"
+            "Cancel: Continue with current chat"
         )
         
-        if result is True:  # Yes - save and clear
+        if result is True:  # Yes - save and start new
             self.save_chat_history()
-            self.clear_chat()
-        elif result is False:  # No - clear without saving
-            self.clear_chat()
+            self.start_new_chat_session()
+        elif result is False:  # No - start new without saving
+            self.start_new_chat_session()
         # Cancel - do nothing
+        
+    def start_new_chat_session(self):
+        """Start a new chat session"""
+        try:
+            # Create new session ID
+            self.current_session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # Create session in database
+            if self.db:
+                self.db.create_chat_session(self.current_session_id)
+            
+            # Clear current chat
+            self.clear_chat()
+            
+            self.add_to_chat("System", "🆕 Started new chat session")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start new session: {str(e)}")
         
     def clear_documents(self):
         """Clear all uploaded documents"""
@@ -1727,6 +1873,10 @@ class OANA:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to reset settings: {e}")
                 
+    def show_model_selector(self):
+        """Show AI model selector dialog"""
+        ModelSelectorDialog(self.root, self)
+                
     def show_statistics(self):
         """Show application statistics"""
         StatisticsDialog(self.root, self)
@@ -1767,6 +1917,170 @@ class OANA:
 
 
 # Enhanced Dialog Classes
+
+class ModelSelectorDialog:
+    """Dialog for selecting and switching AI models"""
+    def __init__(self, parent, app):
+        self.parent = parent
+        self.app = app
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("🤖 AI Model Selector")
+        self.window.geometry("700x500")
+        self.window.transient(parent)
+        self.window.grab_set()
+        
+        self.setup_ui()
+        self.load_models()
+        
+    def setup_ui(self):
+        """Setup the model selector UI"""
+        main_frame = ttk.Frame(self.window, padding="15")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="🤖 AI Model Selector", 
+                 font=("Arial", 16, "bold")).pack(pady=(0, 20))
+        
+        # Current model info
+        info_frame = ttk.LabelFrame(main_frame, text="Current Model", padding="10")
+        info_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        if self.app.ai_engine:
+            model_info = self.app.ai_engine.get_model_info()
+            current_model = model_info.get('model_name', 'Unknown')
+            backend = model_info.get('backend', 'Unknown')
+            status = "✅ Loaded" if model_info.get('is_loaded', False) else "❌ Not Loaded"
+        else:
+            current_model = "None"
+            backend = "None"
+            status = "❌ Not Initialized"
+            
+        ttk.Label(info_frame, text=f"Model: {current_model}").pack(anchor=tk.W)
+        ttk.Label(info_frame, text=f"Backend: {backend}").pack(anchor=tk.W)
+        ttk.Label(info_frame, text=f"Status: {status}").pack(anchor=tk.W)
+        
+        # Available models
+        models_frame = ttk.LabelFrame(main_frame, text="Available Models", padding="10")
+        models_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
+        
+        # Create treeview for models
+        columns = ("backend", "size")
+        self.models_tree = ttk.Treeview(models_frame, columns=columns, show="tree headings", height=12)
+        
+        self.models_tree.heading("#0", text="Model Name")
+        self.models_tree.heading("backend", text="Backend")
+        self.models_tree.heading("size", text="Size (MB)")
+        
+        self.models_tree.column("#0", width=300)
+        self.models_tree.column("backend", width=120)
+        self.models_tree.column("size", width=100)
+        
+        # Scrollbar for treeview
+        tree_scrollbar = ttk.Scrollbar(models_frame, orient=tk.VERTICAL, command=self.models_tree.yview)
+        self.models_tree.configure(yscrollcommand=tree_scrollbar.set)
+        
+        self.models_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(button_frame, text="🔄 Refresh", 
+                  command=self.load_models).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="⚡ Switch Model", 
+                  command=self.switch_model).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="📥 Download Models", 
+                  command=self.show_model_download).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="❌ Close", 
+                  command=self.window.destroy).pack(side=tk.RIGHT)
+                  
+    def load_models(self):
+        """Load available models into the tree"""
+        # Clear existing items
+        for item in self.models_tree.get_children():
+            self.models_tree.delete(item)
+            
+        try:
+            if self.app.ai_engine:
+                models = self.app.ai_engine.get_available_models()
+                
+                for model in models:
+                    name = model['name']
+                    backend = model['backend']
+                    size = f"{model['size_mb']:.1f}" if model['size_mb'] > 0 else "Unknown"
+                    
+                    self.models_tree.insert("", tk.END, 
+                                          text=name,
+                                          values=(backend, size),
+                                          tags=(model['path'] or model['name'], backend))
+                
+                if not models:
+                    self.models_tree.insert("", tk.END, 
+                                          text="No models found", 
+                                          values=("", ""))
+            else:
+                self.models_tree.insert("", tk.END, 
+                                      text="AI Engine not initialized", 
+                                      values=("", ""))
+                                      
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load models: {str(e)}")
+            
+    def switch_model(self):
+        """Switch to the selected model"""
+        selection = self.models_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a model to switch to")
+            return
+            
+        selected_item = selection[0]
+        model_name = self.models_tree.item(selected_item, 'text')
+        
+        if model_name in ["No models found", "AI Engine not initialized"]:
+            return
+            
+        tags = self.models_tree.item(selected_item, 'tags')
+        if not tags:
+            return
+            
+        model_path = tags[0]
+        backend = tags[1] if len(tags) > 1 else "auto"
+        
+        # Confirm switch
+        if not messagebox.askyesno("Switch Model", 
+                                  f"Switch to model '{model_name}'?\nThis may take a moment to load."):
+            return
+            
+        try:
+            self.window.config(cursor="wait")
+            self.window.update()
+            
+            if self.app.ai_engine:
+                if backend == "ollama":
+                    success = self.app.ai_engine.switch_model(model_name=model_path, backend=backend)
+                else:
+                    success = self.app.ai_engine.switch_model(model_path=model_path, backend=backend)
+                
+                if success:
+                    messagebox.showinfo("Success", f"Successfully switched to model: {model_name}")
+                    self.app.add_to_chat("System", f"🤖 Switched to AI model: {model_name}")
+                    self.setup_ui()  # Refresh the dialog
+                else:
+                    messagebox.showerror("Error", f"Failed to switch to model: {model_name}")
+            else:
+                messagebox.showerror("Error", "AI Engine not available")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to switch model: {str(e)}")
+        finally:
+            self.window.config(cursor="")
+            
+    def show_model_download(self):
+        """Show model download dialog"""
+        self.window.destroy()
+        ModelDownloadDialog(self.parent, self.app)
 
 class ThemeSettingsDialog:
     """Dialog for theme settings"""
@@ -2033,16 +2347,26 @@ class ChatHistoryManagerDialog:
             return
             
         try:
-            sessions = self.app.db.get_sessions()
+            sessions = self.app.db.get_chat_sessions()
+            
+            # Clear existing items
+            for item in self.sessions_tree.get_children():
+                self.sessions_tree.delete(item)
             
             for session in sessions:
-                # Get message count for each session
-                messages = self.app.db.get_chat_history(session['session_id'], limit=10000)
-                message_count = len(messages)
+                # Format date for display
+                try:
+                    updated_at = datetime.fromisoformat(session['updated_at']).strftime('%Y-%m-%d %H:%M')
+                except:
+                    updated_at = session['updated_at']
+                
+                title = session.get('title', session['session_id'])
+                message_count = session.get('message_count', 0)
                 
                 self.sessions_tree.insert("", tk.END, 
-                                        text=session['session_id'],
-                                        values=(message_count, session['last_accessed']))
+                                        text=title,
+                                        values=(f"{message_count} msgs", updated_at),
+                                        tags=(session['session_id'],))
                                         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load sessions: {str(e)}")
@@ -2054,7 +2378,11 @@ class ChatHistoryManagerDialog:
             return
             
         selected_item = selection[0]
-        session_id = self.sessions_tree.item(selected_item, 'text')
+        tags = self.sessions_tree.item(selected_item, 'tags')
+        if not tags:
+            return
+            
+        session_id = tags[0]
         
         if not self.app.db:
             return
@@ -2066,13 +2394,17 @@ class ChatHistoryManagerDialog:
             self.messages_text.delete(1.0, tk.END)
             
             for msg in messages:
-                timestamp = msg['timestamp']
+                try:
+                    timestamp = datetime.fromisoformat(msg['timestamp']).strftime('%H:%M:%S')
+                except:
+                    timestamp = msg['timestamp'][:8] if len(msg['timestamp']) > 8 else msg['timestamp']
+                
                 role = msg['role']
                 message = msg['message']
                 
-                if role == "You":
+                if role == "user":
                     self.messages_text.insert(tk.END, f"[{timestamp}] 🧑 You:\n", "user")
-                elif role == "AI":
+                elif role == "assistant":
                     self.messages_text.insert(tk.END, f"[{timestamp}] 🤖 AI:\n", "ai")
                 else:
                     self.messages_text.insert(tk.END, f"[{timestamp}] ℹ️  {role}:\n", "system")
@@ -2097,21 +2429,53 @@ class ChatHistoryManagerDialog:
             return
             
         selected_item = selection[0]
-        session_id = self.sessions_tree.item(selected_item, 'text')
+        tags = self.sessions_tree.item(selected_item, 'tags')
+        if not tags:
+            return
+            
+        session_id = tags[0]
+        session_title = self.sessions_tree.item(selected_item, 'text')
         
         result = messagebox.askyesno("Load Session", 
-                                   f"Load session '{session_id}' into main chat?\nThis will replace current conversation.")
+                                   f"Load session '{session_title}' into main chat?\nThis will replace current conversation.")
         
         if result:
-            self.app.current_session_id = session_id
-            # Clear current chat display
-            self.app.chat_display.config(state=tk.NORMAL)
-            self.app.chat_display.delete(1.0, tk.END)
-            self.app.chat_display.config(state=tk.DISABLED)
-            
-            # Load history from database
-            self.app.chat_history.clear()
-            self.app.load_data_from_database()
+            try:
+                # Save current session first
+                if self.app.chat_history and messagebox.askyesno("Save Current", "Save current chat before loading?"):
+                    self.app.save_chat_history()
+                
+                # Load selected session
+                self.app.current_session_id = session_id
+                
+                # Clear current display
+                self.app.chat_display.config(state=tk.NORMAL)
+                self.app.chat_display.delete(1.0, tk.END)
+                self.app.chat_display.config(state=tk.DISABLED)
+                
+                # Load messages from database
+                self.app.chat_history.clear()
+                messages = self.app.db.get_chat_history(session_id, limit=1000)
+                
+                for msg in messages:
+                    # Convert role names for consistency
+                    display_role = "You" if msg['role'] == "user" else "AI" if msg['role'] == "assistant" else msg['role']
+                    
+                    # Add to display (without saving to database again)
+                    self.app.add_message_to_display_only(display_role, msg['message'])
+                    
+                    # Add to history
+                    self.app.chat_history.append({
+                        'role': display_role,
+                        'content': msg['message'],
+                        'timestamp': msg['timestamp']
+                    })
+                
+                self.app.add_to_chat("System", f"📂 Loaded chat session: {session_title}")
+                self.window.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load session: {str(e)}")
             
             # Refresh chat display
             for msg in self.app.chat_history:

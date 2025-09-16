@@ -22,15 +22,28 @@ class OANADatabase:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            # Create chat_history table
+            # Create chat_sessions table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT UNIQUE NOT NULL,
+                    title TEXT,
+                    summary TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            ''')
+            
+            # Create chat_history table (updated with session reference)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS chat_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     message TEXT NOT NULL,
-                    session_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES chat_sessions (session_id)
                 )
             ''')
             
@@ -77,15 +90,27 @@ class OANADatabase:
             conn.commit()
             
     def add_chat_message(self, role: str, message: str, session_id: str = "default") -> int:
-        """Add a chat message to the database"""
+        """Add a chat message to the database and ensure session exists"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            timestamp = datetime.now().isoformat()
             
+            # Ensure session exists
+            cursor.execute('SELECT session_id FROM chat_sessions WHERE session_id = ?', (session_id,))
+            if not cursor.fetchone():
+                self.create_chat_session(session_id)
+            
+            # Add message
             cursor.execute('''
-                INSERT INTO chat_history (timestamp, role, message, session_id)
+                INSERT INTO chat_history (session_id, role, message, timestamp)
                 VALUES (?, ?, ?, ?)
-            ''', (timestamp, role, message, session_id))
+            ''', (session_id, role, message, datetime.now().isoformat()))
+            
+            # Update session timestamp
+            cursor.execute('''
+                UPDATE chat_sessions 
+                SET updated_at = ? 
+                WHERE session_id = ?
+            ''', (datetime.now().isoformat(), session_id))
             
             conn.commit()
             return cursor.lastrowid
@@ -116,6 +141,108 @@ class OANADatabase:
             cursor.execute('DELETE FROM chat_history WHERE session_id = ?', (session_id,))
             conn.commit()
             return cursor.rowcount
+            
+    # Chat Session Management
+    def create_chat_session(self, session_id: str, title: str = None) -> str:
+        """Create a new chat session"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            if not title:
+                title = f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                
+            cursor.execute('''
+                INSERT OR REPLACE INTO chat_sessions (session_id, title, updated_at)
+                VALUES (?, ?, ?)
+            ''', (session_id, title, datetime.now().isoformat()))
+            
+            conn.commit()
+            return session_id
+            
+    def update_chat_session(self, session_id: str, title: str = None, summary: str = None):
+        """Update chat session metadata"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            updates = []
+            params = []
+            
+            if title:
+                updates.append("title = ?")
+                params.append(title)
+                
+            if summary:
+                updates.append("summary = ?")
+                params.append(summary)
+                
+            updates.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            params.append(session_id)
+            
+            cursor.execute(f'''
+                UPDATE chat_sessions 
+                SET {', '.join(updates)}
+                WHERE session_id = ?
+            ''', params)
+            
+            conn.commit()
+            
+    def get_chat_sessions(self, limit: int = 50) -> List[Dict]:
+        """Get all chat sessions ordered by most recent"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT session_id, title, summary, created_at, updated_at,
+                       (SELECT COUNT(*) FROM chat_history WHERE session_id = cs.session_id) as message_count
+                FROM chat_sessions cs
+                WHERE is_active = 1
+                ORDER BY updated_at DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            results = cursor.fetchall()
+            return [
+                {
+                    "session_id": row[0],
+                    "title": row[1],
+                    "summary": row[2],
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                    "message_count": row[5]
+                }
+                for row in results
+            ]
+            
+    def delete_chat_session(self, session_id: str):
+        """Delete a chat session and its messages"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Delete chat history first
+            cursor.execute('DELETE FROM chat_history WHERE session_id = ?', (session_id,))
+            
+            # Then delete session
+            cursor.execute('DELETE FROM chat_sessions WHERE session_id = ?', (session_id,))
+            
+            conn.commit()
+            
+    def generate_chat_summary(self, session_id: str) -> str:
+        """Generate a summary for a chat session based on first few messages"""
+        messages = self.get_chat_history(session_id, limit=5)
+        
+        if not messages:
+            return "Empty chat"
+            
+        # Create summary from first user message or first few words
+        first_user_msg = next((msg for msg in messages if msg['role'] == 'user'), None)
+        if first_user_msg:
+            text = first_user_msg['message']
+            # Take first 50 characters and add ellipsis if longer
+            summary = text[:50] + "..." if len(text) > 50 else text
+            return summary
+        
+        return f"Chat from {messages[0]['timestamp'][:10]}"
             
     def add_document(self, name: str, path: str, content: str, file_type: str, file_size: int) -> int:
         """Add a document to the database"""

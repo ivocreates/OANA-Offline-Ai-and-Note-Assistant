@@ -376,6 +376,7 @@ Available backends status:
         return {
             "backend": self.backend,
             "is_loaded": self.is_loaded,
+            "model_name": getattr(self, 'model_name', 'Unknown'),
             "model_path": getattr(self, 'model_path', None),
             "available_backends": {
                 "llama-cpp": LLAMA_CPP_AVAILABLE,
@@ -383,6 +384,73 @@ Available backends status:
                 "transformers": TRANSFORMERS_AVAILABLE
             }
         }
+        
+    def get_available_models(self) -> List[Dict]:
+        """Get list of available models"""
+        models = []
+        
+        # Check for GGUF models in all possible directories
+        possible_model_dirs = [
+            os.path.join(os.path.dirname(__file__), "..", "models"),
+            os.path.join(os.getcwd(), "models"),
+            os.path.join(os.path.expanduser("~"), ".oana", "models"),
+        ]
+        
+        for models_dir in possible_model_dirs:
+            if os.path.exists(models_dir):
+                for file in os.listdir(models_dir):
+                    if file.endswith('.gguf'):
+                        full_path = os.path.join(models_dir, file)
+                        size_mb = os.path.getsize(full_path) / (1024 * 1024)
+                        models.append({
+                            "name": file,
+                            "path": full_path,
+                            "size_mb": round(size_mb, 2),
+                            "backend": "llama-cpp"
+                        })
+                        
+        # Check for Ollama models
+        if OLLAMA_AVAILABLE:
+            try:
+                import ollama
+                ollama_models = ollama.list()
+                for model in ollama_models.get('models', []):
+                    models.append({
+                        "name": model['name'],
+                        "path": None,
+                        "size_mb": model.get('size', 0) / (1024 * 1024),
+                        "backend": "ollama"
+                    })
+            except:
+                pass
+                
+        return models
+        
+    def switch_model(self, model_path: str = None, model_name: str = None, backend: str = None) -> bool:
+        """Switch to a different model"""
+        try:
+            # Unload current model
+            self.is_loaded = False
+            self.model = None
+            
+            if model_path:
+                self.model_path = model_path
+                
+            if backend:
+                self._initialize_backend(backend)
+            elif model_path and model_path.endswith('.gguf'):
+                self._initialize_backend("llama-cpp")
+            elif model_name and OLLAMA_AVAILABLE:
+                self.model_name = model_name
+                self._initialize_backend("ollama")
+            else:
+                self._auto_detect_backend()
+                
+            return self.is_loaded
+            
+        except Exception as e:
+            print(f"Failed to switch model: {e}")
+            return False
         
     def reload_model(self, model_path=None):
         """Reload model with new path"""
