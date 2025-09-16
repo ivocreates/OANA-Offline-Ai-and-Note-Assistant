@@ -1,17 +1,17 @@
 @echo off
-title Offline AI ChatBot - Quick Installer
+title OANA - Quick Setup and Installation
 
-echo ========================================
-echo  Offline AI ChatBot - Quick Installer  
-echo ========================================
+echo ===============================================
+echo OANA - Offline AI and Note Assistant
+echo Quick Setup Script
+echo ===============================================
 echo.
 
-REM Check if Python is installed
+REM Check Python installation
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python is not installed or not in PATH
-    echo.
-    echo Please install Python 3.9+ from: https://python.org
+    echo ERROR: Python not found! Please install Python 3.8+ first.
+    echo Download from: https://python.org/downloads/
     echo Make sure to check "Add Python to PATH" during installation
     echo.
     pause

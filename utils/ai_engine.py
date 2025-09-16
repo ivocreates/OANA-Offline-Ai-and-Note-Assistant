@@ -70,12 +70,29 @@ class AIEngine:
             
     def _auto_detect_backend(self):
         """Auto-detect best available backend"""
-        # Check for local GGUF models
-        models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
-        gguf_files = []
+        # Check for local GGUF models in multiple possible locations
+        possible_model_dirs = [
+            os.path.join(os.path.dirname(__file__), "..", "models"),  # Default location
+            os.path.join(os.getcwd(), "models"),  # Current working directory
+            os.path.join(os.path.expanduser("~"), ".oana", "models"),  # User home directory
+        ]
         
-        if os.path.exists(models_dir):
-            gguf_files = [f for f in os.listdir(models_dir) if f.endswith('.gguf')]
+        gguf_files = []
+        self.models_dir = None
+        
+        for models_dir in possible_model_dirs:
+            if os.path.exists(models_dir):
+                found_files = [f for f in os.listdir(models_dir) if f.endswith('.gguf')]
+                if found_files:
+                    gguf_files = found_files
+                    self.models_dir = models_dir
+                    print(f"Found {len(gguf_files)} GGUF model(s) in {models_dir}")
+                    break
+        
+        if not gguf_files:
+            print("No GGUF models found in any of the following locations:")
+            for dir_path in possible_model_dirs:
+                print(f"  - {dir_path}")
             
         # Priority order: llama-cpp > ollama > transformers > fallback
         if LLAMA_CPP_AVAILABLE and gguf_files:
@@ -110,30 +127,51 @@ class AIEngine:
     def _init_llama_cpp(self):
         """Initialize llama-cpp-python backend"""
         if not LLAMA_CPP_AVAILABLE:
-            raise Exception("llama-cpp-python not available")
+            raise Exception("llama-cpp-python not available. Install with: pip install llama-cpp-python")
             
-        models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
-        model_files = []
-        
-        if os.path.exists(models_dir):
-            model_files = [f for f in os.listdir(models_dir) if f.endswith('.gguf')]
+        # Use the models directory found during auto-detection
+        if not self.models_dir or not os.path.exists(self.models_dir):
+            raise Exception("No models directory found. Please create a 'models' folder and add GGUF model files.")
+            
+        model_files = [f for f in os.listdir(self.models_dir) if f.endswith('.gguf')]
             
         if not model_files:
-            raise Exception("No GGUF model files found in models directory")
+            raise Exception(f"No GGUF model files found in {self.models_dir}. Please download models using 'python download_models.py'")
             
-        # Use the first available model
-        model_path = os.path.join(models_dir, model_files[0])
+        # Use the first available model or a specific one if provided
+        if self.model_path and os.path.exists(self.model_path):
+            model_path = self.model_path
+            model_name = os.path.basename(model_path)
+        else:
+            # Sort models by size (smaller models load faster)
+            model_files_with_size = []
+            for f in model_files:
+                full_path = os.path.join(self.models_dir, f)
+                size = os.path.getsize(full_path)
+                model_files_with_size.append((f, size))
+            
+            # Sort by size and use the smallest for faster loading
+            model_files_with_size.sort(key=lambda x: x[1])
+            model_name = model_files_with_size[0][0]
+            model_path = os.path.join(self.models_dir, model_name)
         
-        print(f"Loading model: {model_files[0]}")
-        self.model = Llama(
-            model_path=model_path,
-            n_ctx=2048,  # Context length
-            n_threads=4,  # Number of CPU threads
-            verbose=False
-        )
+        print(f"Loading model: {model_name}")
+        print(f"Model path: {model_path}")
         
-        self.is_loaded = True
-        print(f"llama-cpp backend initialized with {model_files[0]}")
+        try:
+            self.model = Llama(
+                model_path=model_path,
+                n_ctx=2048,  # Context length
+                n_threads=4,  # Number of CPU threads
+                verbose=False
+            )
+            
+            self.is_loaded = True
+            self.model_name = model_name
+            print(f"✅ llama-cpp backend initialized with {model_name}")
+            
+        except Exception as e:
+            raise Exception(f"Failed to load model {model_name}: {str(e)}")
         
     def _init_ollama(self):
         """Initialize Ollama backend"""
@@ -286,28 +324,52 @@ class AIEngine:
             
     def _generate_fallback(self, prompt: str) -> str:
         """Generate mock response for testing"""
-        # Simple fallback responses
-        fallback_responses = [
-            "I'm running in fallback mode. To get real AI responses, please install a supported model.",
-            "This is a mock response. Install llama-cpp-python and download a GGUF model for real AI.",
-            "Fallback mode active. For full functionality, set up an AI model in the models directory.",
-            "I'm a placeholder AI. Install dependencies and models for actual chat functionality."
-        ]
+        # Provide helpful setup instructions
+        setup_instructions = """
+🚫 OANA is running in FALLBACK MODE
+
+To enable full AI functionality, you need to:
+
+1. Install AI backend:
+   pip install llama-cpp-python
+
+2. Download a model:
+   python download_models.py
+
+3. Or manually place a .gguf model file in the 'models/' folder
+
+Available backends status:
+"""
         
-        # Simple keyword-based responses
+        backend_status = []
+        backend_status.append(f"• llama-cpp-python: {'✅ Available' if LLAMA_CPP_AVAILABLE else '❌ Not installed'}")
+        backend_status.append(f"• Ollama: {'✅ Available' if OLLAMA_AVAILABLE else '❌ Not installed'}")
+        backend_status.append(f"• Transformers: {'✅ Available' if TRANSFORMERS_AVAILABLE else '❌ Not installed'}")
+        
+        # Check for models
+        models_found = []
+        if hasattr(self, 'models_dir') and self.models_dir and os.path.exists(self.models_dir):
+            gguf_files = [f for f in os.listdir(self.models_dir) if f.endswith('.gguf')]
+            if gguf_files:
+                models_found.append(f"Found {len(gguf_files)} GGUF models in {self.models_dir}")
+            else:
+                models_found.append(f"No GGUF models found in {self.models_dir}")
+        else:
+            models_found.append("No models directory found")
+        
+        full_message = setup_instructions + "\n".join(backend_status) + "\n\nModels status:\n" + "\n".join(models_found)
+        
+        # Simple keyword-based responses for different queries
         prompt_lower = prompt.lower()
         
-        if "hello" in prompt_lower or "hi" in prompt_lower:
-            return "Hello! I'm running in fallback mode. Please install an AI model for real conversations."
-        elif "help" in prompt_lower:
-            return "I can help, but I'm in fallback mode. Install llama-cpp-python and download a GGUF model for full AI capabilities."
-        elif "summarize" in prompt_lower or "summary" in prompt_lower:
-            return "I can summarize documents when a proper AI model is installed. Currently in fallback mode."
-        elif "document" in prompt_lower or "pdf" in prompt_lower:
-            return "Document analysis requires a real AI model. Please install dependencies and models."
+        if any(word in prompt_lower for word in ["setup", "install", "help", "how"]):
+            return full_message
+        elif "hello" in prompt_lower or "hi" in prompt_lower:
+            return "Hello! " + full_message
+        elif "model" in prompt_lower:
+            return "Model not loaded. " + full_message
         else:
-            import random
-            return random.choice(fallback_responses)
+            return "I'm in fallback mode and cannot provide AI responses. " + full_message
             
     def get_model_info(self) -> Dict:
         """Get information about loaded model"""

@@ -15,6 +15,8 @@ import webbrowser
 from pathlib import Path
 import tempfile
 import subprocess
+import sqlite3
+import platform
 
 # Add utils to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
@@ -24,6 +26,7 @@ try:
     from docx_parser import DocxParser
     from ai_engine import AIEngine
     from summarizer import Summarizer
+    from database import OANADatabase
 except ImportError as e:
     print(f"Import error: {e}")
     print("Some modules are not available. Please install dependencies.")
@@ -35,7 +38,7 @@ class OANA:
         self.root.geometry("1400x900")
         self.root.minsize(1000, 700)
         
-        # Theme and styling
+        # Theme and styling with enhanced visual design
         self.current_theme = "light"
         self.themes = {
             "light": {
@@ -48,19 +51,29 @@ class OANA:
                 "accent": "#3498db",
                 "success": "#27ae60",
                 "warning": "#f39c12",
-                "danger": "#e74c3c"
+                "danger": "#e74c3c",
+                "border": "#bdc3c7",
+                "hover": "#e8f4fd",
+                "button_bg": "#3498db",
+                "button_fg": "#ffffff",
+                "button_hover": "#2980b9"
             },
             "dark": {
-                "bg": "#2c3e50",
-                "fg": "#ecf0f1",
+                "bg": "#1a1a1a",
+                "fg": "#e1e1e1",
                 "select_bg": "#3498db",
                 "select_fg": "#ffffff",
-                "entry_bg": "#34495e",
-                "panel_bg": "#34495e",
+                "entry_bg": "#2d2d2d",
+                "panel_bg": "#252525",
                 "accent": "#3498db",
                 "success": "#27ae60",
                 "warning": "#f39c12",
-                "danger": "#e74c3c"
+                "danger": "#e74c3c",
+                "border": "#404040",
+                "hover": "#333333",
+                "button_bg": "#3498db",
+                "button_fg": "#ffffff",
+                "button_hover": "#2980b9"
             },
             "blue": {
                 "bg": "#1e3a5f",
@@ -72,8 +85,55 @@ class OANA:
                 "accent": "#4a90e2",
                 "success": "#48bb78",
                 "warning": "#ed8936",
-                "danger": "#f56565"
+                "danger": "#f56565",
+                "border": "#4a6fa5",
+                "hover": "#3d5a8a",
+                "button_bg": "#4a90e2",
+                "button_fg": "#ffffff",
+                "button_hover": "#357abd"
+            },
+            "modern": {
+                "bg": "#fafafa",
+                "fg": "#1a1a1a",
+                "select_bg": "#667eea",
+                "select_fg": "#ffffff",
+                "entry_bg": "#ffffff",
+                "panel_bg": "#f0f0f0",
+                "accent": "#667eea",
+                "success": "#10b981",
+                "warning": "#f59e0b",
+                "danger": "#ef4444",
+                "border": "#e5e5e5",
+                "hover": "#f3f4f6",
+                "button_bg": "#667eea",
+                "button_fg": "#ffffff",
+                "button_hover": "#5a67d8"
             }
+        }
+        
+        # Emoji fallbacks for better cross-platform compatibility
+        self.emoji_fallbacks = {
+            "📁": "File",
+            "💾": "Save",
+            "📊": "Export", 
+            "🗑️": "Clear",
+            "🚪": "Exit",
+            "🤖": "AI",
+            "📥": "Download",
+            "🔄": "Reload",
+            "⚙️": "Settings",
+            "🎨": "Themes",
+            "💬": "Chat",
+            "🔧": "Tools",
+            "🗂️": "Files",
+            "🆘": "Help",
+            "ℹ️": "About",
+            "🔍": "Search",
+            "📝": "Note",
+            "🔒": "Security",
+            "✅": "Success",
+            "❌": "Error",
+            "⚠️": "Warning"
         }
         
         # Initialize components
@@ -82,14 +142,27 @@ class OANA:
         self.docx_parser = DocxParser()
         self.summarizer = None
         
-        # Data storage
+        # Initialize database
+        try:
+            data_dir = os.path.join(os.path.dirname(__file__), "data")
+            os.makedirs(data_dir, exist_ok=True)
+            self.db = OANADatabase(os.path.join(data_dir, "oana.db"))
+        except Exception as e:
+            print(f"Database initialization failed: {e}")
+            self.db = None
+        
+        # Data storage (now backed by database)
         self.chat_history = []
         self.uploaded_documents = []
         self.current_context = ""
+        self.current_session_id = "default"
         self.settings = self._load_settings()
         
         # Apply theme
         self.apply_theme()
+        
+        # Load data from database
+        self.load_data_from_database()
         
         # Initialize UI
         self.setup_styles()
@@ -101,6 +174,54 @@ class OANA:
         
         # Auto-save settings
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def load_data_from_database(self):
+        """Load chat history and documents from database"""
+        if not self.db:
+            return
+            
+        try:
+            # Load chat history for current session
+            db_chat_history = self.db.get_chat_history(self.current_session_id)
+            for msg in db_chat_history:
+                self.chat_history.append({
+                    'sender': msg['role'],
+                    'content': msg['message'],
+                    'timestamp': msg['timestamp']
+                })
+            
+            # Load documents
+            db_documents = self.db.get_documents()
+            self.uploaded_documents = []
+            for doc in db_documents:
+                doc_info = {
+                    'id': doc['id'],
+                    'name': doc['name'],
+                    'path': doc['path'],
+                    'content': doc['content'],
+                    'upload_time': doc['upload_time'],
+                    'size': doc['size'],
+                    'type': doc['type']
+                }
+                self.uploaded_documents.append(doc_info)
+                
+        except Exception as e:
+            print(f"Failed to load data from database: {e}")
+    
+    def get_emoji_label(self, emoji, text):
+        """Get emoji with fallback for better compatibility"""
+        try:
+            # Test if emoji can be displayed (simple check)
+            test_label = tk.Label(self.root, text=emoji)
+            test_label.destroy()  # Clean up test widget
+            return f"{emoji} {text}"
+        except:
+            # Use fallback if emoji fails
+            fallback = self.emoji_fallbacks.get(emoji, "")
+            if fallback:
+                return f"[{fallback}] {text}"
+            return text
+    
     def _load_settings(self):
         """Load user settings"""
         settings_file = Path(__file__).parent / "user_settings.json"
@@ -159,72 +280,185 @@ class OANA:
         self.root.configure(bg=theme["bg"])
         
     def setup_styles(self):
-        """Setup ttk styles for theming"""
+        """Setup enhanced ttk styles for modern theming"""
         style = ttk.Style()
         theme = self.themes[self.settings.get("theme", "light")]
         
-        # Configure styles
-        style.configure("Title.TLabel", font=("Arial", 12, "bold"), foreground=theme["accent"])
-        style.configure("Heading.TLabel", font=("Arial", 10, "bold"), foreground=theme["fg"])
-        style.configure("Custom.TButton", padding=(10, 5))
-        style.configure("Accent.TButton", foreground=theme["accent"])
-        style.configure("Success.TButton", foreground=theme["success"])
-        style.configure("Warning.TButton", foreground=theme["warning"])
-        style.configure("Danger.TButton", foreground=theme["danger"])
+        # Configure modern button styles with hover effects
+        style.configure("Modern.TButton",
+                       padding=(12, 8),
+                       relief="flat",
+                       borderwidth=0,
+                       font=("Segoe UI", 9),
+                       background=theme["button_bg"],
+                       foreground=theme["button_fg"])
+        
+        style.map("Modern.TButton",
+                  background=[('active', theme["button_hover"]),
+                            ('pressed', theme["accent"])])
+        
+        # Enhanced label styles
+        style.configure("Title.TLabel", 
+                       font=("Segoe UI", 16, "bold"), 
+                       foreground=theme["accent"],
+                       background=theme["bg"])
+        
+        style.configure("Heading.TLabel", 
+                       font=("Segoe UI", 11, "bold"), 
+                       foreground=theme["fg"],
+                       background=theme["bg"])
+        
+        style.configure("Subtitle.TLabel", 
+                       font=("Segoe UI", 9), 
+                       foreground=theme["fg"],
+                       background=theme["bg"])
+        
+        # Enhanced frame styles
+        style.configure("Card.TFrame",
+                       relief="flat",
+                       borderwidth=1,
+                       background=theme["panel_bg"])
+        
+        # Enhanced entry styles
+        style.configure("Modern.TEntry",
+                       relief="flat",
+                       borderwidth=1,
+                       fieldbackground=theme["entry_bg"],
+                       foreground=theme["fg"],
+                       insertcolor=theme["fg"],
+                       font=("Segoe UI", 9))
+        
+        # Enhanced treeview styles
+        style.configure("Modern.Treeview",
+                       background=theme["entry_bg"],
+                       foreground=theme["fg"],
+                       fieldbackground=theme["entry_bg"],
+                       font=("Segoe UI", 9))
+        
+        style.configure("Modern.Treeview.Heading",
+                       background=theme["panel_bg"],
+                       foreground=theme["fg"],
+                       font=("Segoe UI", 9, "bold"))
+        
+        # Button variants
+        style.configure("Success.TButton", 
+                       background=theme["success"],
+                       foreground="white")
+        style.map("Success.TButton",
+                  background=[('active', '#219a52')])
+        
+        style.configure("Warning.TButton", 
+                       background=theme["warning"],
+                       foreground="white")
+        style.map("Warning.TButton",
+                  background=[('active', '#e67e22')])
+        
+        style.configure("Danger.TButton", 
+                       background=theme["danger"],
+                       foreground="white")
+        style.map("Danger.TButton",
+                  background=[('active', '#c0392b')])
+        
+        # Enhanced notebook styles
+        style.configure("Modern.TNotebook",
+                       background=theme["bg"],
+                       borderwidth=0)
+        
+        style.configure("Modern.TNotebook.Tab",
+                       background=theme["panel_bg"],
+                       foreground=theme["fg"],
+                       padding=[12, 8],
+                       font=("Segoe UI", 9))
+        
+        style.map("Modern.TNotebook.Tab",
+                  background=[('selected', theme["accent"]),
+                            ('active', theme["hover"])],
+                  foreground=[('selected', theme["select_fg"])])
+        
+        # Enhanced progressbar
+        style.configure("Modern.TProgressbar",
+                       background=theme["accent"],
+                       borderwidth=0,
+                       lightcolor=theme["accent"],
+                       darkcolor=theme["accent"])
         
     def setup_menu(self):
-        """Setup enhanced menu bar"""
-        menubar = tk.Menu(self.root, bg=self.themes[self.current_theme]["panel_bg"])
+        """Setup enhanced menu bar with better emoji support"""
+        menubar = tk.Menu(self.root, bg=self.themes[self.current_theme]["panel_bg"],
+                         font=("Segoe UI", 9))
         self.root.config(menu=menubar)
         
         # File menu
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="📁 File", menu=file_menu)
-        file_menu.add_command(label="📤 Upload Document", command=self.upload_document, accelerator="Ctrl+O")
+        file_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        menubar.add_cascade(label=self.get_emoji_label("📁", "File"), menu=file_menu)
+        file_menu.add_command(label=self.get_emoji_label("📤", "Upload Document"), 
+                             command=self.upload_document, accelerator="Ctrl+O")
         file_menu.add_separator()
-        file_menu.add_command(label="💾 Save Chat History", command=self.save_chat_history, accelerator="Ctrl+S")
-        file_menu.add_command(label="📄 Export Chat as PDF", command=self.export_chat_pdf)
-        file_menu.add_command(label="📊 Export Chat as HTML", command=self.export_chat_html)
+        file_menu.add_command(label=self.get_emoji_label("💾", "Save Chat History"), 
+                             command=self.save_chat_history, accelerator="Ctrl+S")
+        file_menu.add_command(label=self.get_emoji_label("📄", "Export Chat as PDF"), 
+                             command=self.export_chat_pdf)
+        file_menu.add_command(label=self.get_emoji_label("📊", "Export Chat as HTML"), 
+                             command=self.export_chat_html)
         file_menu.add_separator()
-        file_menu.add_command(label="🧹 Clear Chat History", command=self.clear_chat_confirm)
-        file_menu.add_command(label="🗑️ Clear All Documents", command=self.clear_documents)
+        file_menu.add_command(label=self.get_emoji_label("🧹", "Clear Chat History"), 
+                             command=self.clear_chat_confirm)
+        file_menu.add_command(label=self.get_emoji_label("🗑️", "Clear All Documents"), 
+                             command=self.clear_documents)
         file_menu.add_separator()
-        file_menu.add_command(label="🚪 Exit", command=self.on_closing, accelerator="Alt+F4")
+        file_menu.add_command(label=self.get_emoji_label("🚪", "Exit"), 
+                             command=self.on_closing, accelerator="Alt+F4")
         
         # AI Models menu
-        models_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="🤖 AI Models", menu=models_menu)
-        models_menu.add_command(label="📥 Download Models", command=self.show_model_downloader)
-        models_menu.add_command(label="🔄 Reload Model", command=self.reload_ai_model)
-        models_menu.add_command(label="⚙️ Model Settings", command=self.show_ai_settings)
+        models_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        menubar.add_cascade(label=self.get_emoji_label("🤖", "AI Models"), menu=models_menu)
+        models_menu.add_command(label=self.get_emoji_label("📥", "Download Models"), 
+                               command=self.show_model_downloader)
+        models_menu.add_command(label=self.get_emoji_label("🔄", "Reload Model"), 
+                               command=self.reload_ai_model)
+        models_menu.add_command(label=self.get_emoji_label("⚙️", "Model Settings"), 
+                               command=self.show_ai_settings)
         models_menu.add_separator()
-        models_menu.add_command(label="📊 Model Status", command=self.show_model_status)
+        models_menu.add_command(label=self.get_emoji_label("📊", "Model Status"), 
+                               command=self.show_model_status)
         
         # Settings menu
-        settings_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="⚙️ Settings", menu=settings_menu)
-        settings_menu.add_command(label="🎨 Themes", command=self.show_theme_settings)
-        settings_menu.add_command(label="💬 Chat Settings", command=self.show_chat_settings)
-        settings_menu.add_command(label="🤖 AI Configuration", command=self.show_ai_settings)
-        settings_menu.add_command(label="🔧 Advanced Settings", command=self.show_advanced_settings)
+        settings_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        menubar.add_cascade(label=self.get_emoji_label("⚙️", "Settings"), menu=settings_menu)
+        settings_menu.add_command(label=self.get_emoji_label("🎨", "Themes"), 
+                                 command=self.show_theme_settings)
+        settings_menu.add_command(label=self.get_emoji_label("💬", "Chat Settings"), 
+                                 command=self.show_chat_settings)
+        settings_menu.add_command(label=self.get_emoji_label("🤖", "AI Configuration"), 
+                                 command=self.show_ai_settings)
+        settings_menu.add_command(label=self.get_emoji_label("🔧", "Advanced Settings"), 
+                                 command=self.show_advanced_settings)
         settings_menu.add_separator()
-        settings_menu.add_command(label="↩️ Reset to Defaults", command=self.reset_settings)
+        settings_menu.add_command(label=self.get_emoji_label("↩️", "Reset to Defaults"), 
+                                 command=self.reset_settings)
         
         # Tools menu
-        tools_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="🔧 Tools", menu=tools_menu)
-        tools_menu.add_command(label="📊 Statistics", command=self.show_statistics)
-        tools_menu.add_command(label="🗂️ File Manager", command=self.show_file_manager)
-        tools_menu.add_command(label="🧪 Test Components", command=self.run_component_test)
+        tools_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        menubar.add_cascade(label=self.get_emoji_label("🔧", "Tools"), menu=tools_menu)
+        tools_menu.add_command(label=self.get_emoji_label("📊", "Statistics"), 
+                              command=self.show_statistics)
+        tools_menu.add_command(label=self.get_emoji_label("🗂️", "File Manager"), 
+                              command=self.show_file_manager)
+        tools_menu.add_command(label=self.get_emoji_label("🧪", "Test Components"), 
+                              command=self.run_component_test)
         
         # Help menu
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="❓ Help", menu=help_menu)
-        help_menu.add_command(label="📖 User Guide", command=self.show_user_guide)
-        help_menu.add_command(label="🆘 Troubleshooting", command=self.show_troubleshooting)
-        help_menu.add_command(label="🎯 Keyboard Shortcuts", command=self.show_shortcuts)
+        help_menu = tk.Menu(menubar, tearoff=0, font=("Segoe UI", 9))
+        menubar.add_cascade(label=self.get_emoji_label("❓", "Help"), menu=help_menu)
+        help_menu.add_command(label=self.get_emoji_label("📖", "User Guide"), 
+                             command=self.show_user_guide)
+        help_menu.add_command(label=self.get_emoji_label("🆘", "Troubleshooting"), 
+                             command=self.show_troubleshooting)
+        help_menu.add_command(label=self.get_emoji_label("🎯", "Keyboard Shortcuts"), 
+                             command=self.show_shortcuts)
         help_menu.add_separator()
-        help_menu.add_command(label="ℹ️ About OANA", command=self.show_about)
+        help_menu.add_command(label=self.get_emoji_label("ℹ️", "About OANA"), 
+                             command=self.show_about)
         
         # Bind keyboard shortcuts
         self.root.bind('<Control-o>', lambda e: self.upload_document())
@@ -234,26 +468,40 @@ class OANA:
         self.root.bind('<F5>', lambda e: self.reload_ai_model())
         
     def setup_ui(self):
-        """Setup the enhanced user interface"""
+        """Setup the enhanced user interface with modern styling"""
         # Create main container with theme colors
         theme = self.themes[self.settings.get("theme", "light")]
         
-        # Title bar with app name and status
-        title_frame = tk.Frame(self.root, bg=theme["accent"], height=50)
-        title_frame.pack(fill=tk.X, pady=(0, 5))
+        # Modern title bar with gradient-like appearance
+        title_frame = tk.Frame(self.root, bg=theme["accent"], height=60)
+        title_frame.pack(fill=tk.X)
         title_frame.pack_propagate(False)
         
-        title_label = tk.Label(title_frame, text="🧠 OANA - Offline AI and Note Assistant", 
-                              font=("Arial", 14, "bold"), fg="white", bg=theme["accent"])
-        title_label.pack(side=tk.LEFT, padx=20, pady=10)
+        # Main title with better typography
+        title_label = tk.Label(title_frame, 
+                              text=self.get_emoji_label("🧠", "OANA - Offline AI Assistant"), 
+                              font=("Segoe UI", 16, "bold"), 
+                              fg="white", 
+                              bg=theme["accent"])
+        title_label.pack(side=tk.LEFT, padx=20, pady=15)
         
-        # Status indicators
-        self.connection_status = tk.Label(title_frame, text="⚡ Initializing...", 
-                                        font=("Arial", 10), fg="white", bg=theme["accent"])
-        self.connection_status.pack(side=tk.RIGHT, padx=20, pady=10)
+        # Enhanced status indicators
+        status_frame = tk.Frame(title_frame, bg=theme["accent"])
+        status_frame.pack(side=tk.RIGHT, padx=20, pady=15)
         
-        # Create main frame with improved layout
-        main_frame = ttk.Frame(self.root, padding="10")
+        self.connection_status = tk.Label(status_frame, 
+                                        text=self.get_emoji_label("⚡", "Initializing..."), 
+                                        font=("Segoe UI", 10), 
+                                        fg="white", 
+                                        bg=theme["accent"])
+        self.connection_status.pack(side=tk.TOP, anchor=tk.E)
+        
+        # Create main frame with modern card-like appearance
+        main_container = tk.Frame(self.root, bg=theme["bg"])
+        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        main_frame = ttk.Frame(main_container, padding="15", style="Card.TFrame")
+        main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Configure grid weights for responsive design
@@ -342,17 +590,21 @@ class OANA:
         doc_frame.rowconfigure(1, weight=1)
         
     def setup_chat_panel(self, parent):
-        """Setup enhanced chat interface panel"""
+        """Setup enhanced chat interface panel with modern styling"""
         theme = self.themes[self.settings.get("theme", "light")]
         
-        # Chat frame with modern design
-        chat_frame = ttk.LabelFrame(parent, text="💬 AI Conversation", padding="10")
-        chat_frame.grid(row=0, column=1, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Chat frame with modern card design
+        chat_frame = ttk.LabelFrame(parent, 
+                                   text=self.get_emoji_label("💬", "AI Conversation"), 
+                                   padding="15", 
+                                   style="Card.TFrame")
+        chat_frame.grid(row=0, column=1, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
         
-        # Chat display with better styling
-        chat_display_frame = ttk.Frame(chat_frame)
-        chat_display_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        # Enhanced chat display with better styling
+        chat_display_frame = tk.Frame(chat_frame, bg=theme["panel_bg"])
+        chat_display_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
         
+        # Chat display with modern appearance
         self.chat_display = scrolledtext.ScrolledText(
             chat_display_frame, 
             height=25, 
@@ -363,17 +615,28 @@ class OANA:
             fg=theme["fg"],
             selectbackground=theme["select_bg"],
             relief=tk.FLAT,
-            borderwidth=1
+            borderwidth=1,
+            highlightthickness=1,
+            highlightcolor=theme["accent"],
+            highlightbackground=theme["border"],
+            padx=12,
+            pady=8
         )
         self.chat_display.pack(fill=tk.BOTH, expand=True)
         
-        # Input section with modern design
-        input_section = ttk.Frame(chat_frame)
-        input_section.pack(fill=tk.X, pady=(0, 10))
+        # Configure chat display tags for better message styling
+        self.chat_display.tag_configure("user", foreground=theme["accent"], font=("Segoe UI", 10, "bold"))
+        self.chat_display.tag_configure("assistant", foreground=theme["success"], font=("Segoe UI", 10, "bold"))
+        self.chat_display.tag_configure("system", foreground=theme["warning"], font=("Segoe UI", 9, "italic"))
+        self.chat_display.tag_configure("timestamp", foreground=theme["fg"], font=("Segoe UI", 8))
         
-        # Message input with placeholder
-        input_frame = ttk.Frame(input_section)
-        input_frame.pack(fill=tk.X, pady=(0, 5))
+        # Modern input section
+        input_section = ttk.Frame(chat_frame, style="Card.TFrame")
+        input_section.pack(fill=tk.X)
+        
+        # Message input with modern styling
+        input_frame = tk.Frame(input_section, bg=theme["panel_bg"])
+        input_frame.pack(fill=tk.X, pady=(0, 10))
         
         self.message_var = tk.StringVar()
         self.message_entry = tk.Entry(
@@ -383,23 +646,42 @@ class OANA:
             bg=theme["entry_bg"],
             fg=theme["fg"],
             relief=tk.FLAT,
-            borderwidth=2
+            borderwidth=1,
+            highlightthickness=1,
+            highlightcolor=theme["accent"],
+            highlightbackground=theme["border"],
+            insertcolor=theme["fg"]
         )
-        self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 15))
         self.message_entry.bind("<Return>", self.send_message)
         self.message_entry.bind("<Shift-Return>", self.send_message)  # Also support Shift+Enter
         
-        # Enhanced send button
-        self.send_btn = ttk.Button(input_frame, text="🚀 Send", command=self.send_message, style="Accent.TButton")
+        # Enhanced send button with modern styling
+        self.send_btn = ttk.Button(input_frame, 
+                                  text=self.get_emoji_label("🚀", "Send"), 
+                                  command=self.send_message, 
+                                  style="Modern.TButton")
         self.send_btn.pack(side=tk.RIGHT)
         
-        # Quick action buttons
-        actions_frame = ttk.Frame(input_section)
-        actions_frame.pack(fill=tk.X)
+        # Modern quick action buttons
+        actions_frame = tk.Frame(input_section, bg=theme["panel_bg"])
+        actions_frame.pack(fill=tk.X, pady=(10, 0))
         
-        ttk.Button(actions_frame, text="📄 Summarize All", command=self.summarize_all_docs, style="Custom.TButton").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(actions_frame, text="🔍 Smart Search", command=self.smart_search, style="Custom.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(actions_frame, text="📝 Take Notes", command=self.take_notes, style="Custom.TButton").pack(side=tk.LEFT, padx=5)
+        # Create modern action buttons with icons
+        ttk.Button(actions_frame, 
+                  text=self.get_emoji_label("📄", "Summarize All"), 
+                  command=self.summarize_all_docs, 
+                  style="Modern.TButton").pack(side=tk.LEFT, padx=(0, 8))
+        
+        ttk.Button(actions_frame, 
+                  text=self.get_emoji_label("🔍", "Smart Search"), 
+                  command=self.smart_search, 
+                  style="Modern.TButton").pack(side=tk.LEFT, padx=4)
+        
+        ttk.Button(actions_frame, 
+                  text=self.get_emoji_label("📝", "Take Notes"), 
+                  command=self.take_notes, 
+                  style="Modern.TButton").pack(side=tk.LEFT, padx=4)
         
         # Chat options and mode selection
         options_frame = ttk.LabelFrame(chat_frame, text="Chat Options", padding="5")
@@ -591,6 +873,20 @@ class OANA:
                         'type': ext.upper().replace('.', '')
                     }
                     
+                    # Add to database
+                    if self.db:
+                        try:
+                            doc_id = self.db.add_document(
+                                doc_info['name'], 
+                                doc_info['path'], 
+                                doc_info['content'],
+                                doc_info['type'], 
+                                doc_info['size']
+                            )
+                            doc_info['id'] = doc_id
+                        except Exception as e:
+                            print(f"Failed to save document to database: {e}")
+                    
                     self.uploaded_documents.append(doc_info)
                     
                     # Add to tree view
@@ -675,25 +971,39 @@ class OANA:
         return context
         
     def add_to_chat(self, sender, message):
-        """Add message to chat display"""
+        """Add message to chat display and database with enhanced styling"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         
-        # Add to history
-        self.chat_history.append({
+        # Add to in-memory history
+        chat_entry = {
             'sender': sender,
             'content': message,
             'timestamp': timestamp
-        })
+        }
+        self.chat_history.append(chat_entry)
         
-        # Add to display
+        # Add to database
+        if self.db:
+            try:
+                self.db.add_chat_message(sender, message, self.current_session_id)
+            except Exception as e:
+                print(f"Failed to save message to database: {e}")
+        
+        # Add to display with enhanced styling
         self.chat_display.configure(state=tk.NORMAL)
         
-        # Format message
+        # Add visual separator for better readability
+        if len(self.chat_history) > 1:
+            self.chat_display.insert(tk.END, "\n" + "─" * 50 + "\n")
+        
+        # Format message with enhanced styling
         if sender == "You":
-            self.chat_display.insert(tk.END, f"\n[{timestamp}] 🧑 You:\n", "user")
+            self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+            self.chat_display.insert(tk.END, f"{self.get_emoji_label('🧑', 'You')}:\n", "user")
             self.chat_display.insert(tk.END, f"{message}\n", "user_msg")
         elif sender == "AI":
-            self.chat_display.insert(tk.END, f"\n[{timestamp}] 🤖 AI:\n", "ai")
+            self.chat_display.insert(tk.END, f"[{timestamp}] ", "timestamp")
+            self.chat_display.insert(tk.END, f"{self.get_emoji_label('🤖', 'AI')}:\n", "assistant")
             self.chat_display.insert(tk.END, f"{message}\n", "ai_msg")
         else:
             self.chat_display.insert(tk.END, f"\n[{timestamp}] ℹ️  {sender}:\n", "system")
@@ -712,7 +1022,7 @@ class OANA:
         
     def summarize_selected(self):
         """Summarize selected document"""
-        selection = self.doc_listbox.curselection()
+        selection = self.doc_tree.selection()
         if not selection:
             messagebox.showwarning("Warning", "Please select a document to summarize")
             return
@@ -721,8 +1031,20 @@ class OANA:
             messagebox.showwarning("Warning", "AI engine is not ready")
             return
             
-        doc_index = selection[0]
-        doc_info = self.uploaded_documents[doc_index]
+        # Get the selected item and find the corresponding document
+        selected_item = selection[0]
+        doc_name = self.doc_tree.item(selected_item, 'text')
+        
+        # Find document in uploaded_documents list
+        doc_info = None
+        for doc in self.uploaded_documents:
+            if doc['name'] == doc_name:
+                doc_info = doc
+                break
+                
+        if not doc_info:
+            messagebox.showerror("Error", "Document not found")
+            return
         
         def summarize():
             try:
@@ -738,17 +1060,28 @@ class OANA:
         
     def remove_selected(self):
         """Remove selected document"""
-        selection = self.doc_listbox.curselection()
+        selection = self.doc_tree.selection()
         if not selection:
             messagebox.showwarning("Warning", "Please select a document to remove")
             return
             
-        doc_index = selection[0]
-        doc_name = self.uploaded_documents[doc_index]['name']
+        selected_item = selection[0]
+        doc_name = self.doc_tree.item(selected_item, 'text')
+        
+        # Find document in uploaded_documents list and get its index
+        doc_index = None
+        for i, doc in enumerate(self.uploaded_documents):
+            if doc['name'] == doc_name:
+                doc_index = i
+                break
+                
+        if doc_index is None:
+            messagebox.showerror("Error", "Document not found")
+            return
         
         if messagebox.askyesno("Confirm", f"Remove document '{doc_name}'?"):
             self.uploaded_documents.pop(doc_index)
-            self.doc_listbox.delete(doc_index)
+            self.doc_tree.delete(selected_item)
             self.doc_preview.delete(1.0, tk.END)
             self.add_to_chat("System", f"Document removed: {doc_name}")
             
@@ -1171,24 +1504,199 @@ class OANA:
         
     def show_model_status(self):
         """Show detailed model status"""
+        status_window = tk.Toplevel(self.root)
+        status_window.title("AI Model Status")
+        status_window.geometry("600x400")
+        status_window.transient(self.root)
+        
+        main_frame = ttk.Frame(status_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create scrolled text widget
+        status_text = scrolledtext.ScrolledText(main_frame, wrap=tk.WORD, font=("Courier", 10))
+        status_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Gather comprehensive status information
+        status_lines = []
+        status_lines.append("🤖 OANA AI MODEL STATUS")
+        status_lines.append("=" * 50)
+        
         if self.ai_engine:
             info = self.ai_engine.get_model_info()
             
-            status_text = f"""
-AI Model Status:
-• Backend: {info.get('backend', 'None')}
-• Model Loaded: {'Yes' if info.get('is_loaded', False) else 'No'}
-• Model Path: {info.get('model_path', 'None')}
-
-Available Backends:
-• llama-cpp: {'✅' if info.get('available_backends', {}).get('llama-cpp', False) else '❌'}
-• Ollama: {'✅' if info.get('available_backends', {}).get('ollama', False) else '❌'}  
-• Transformers: {'✅' if info.get('available_backends', {}).get('transformers', False) else '❌'}
-"""
+            # Basic status
+            status_lines.append(f"\n📊 Current Status:")
+            status_lines.append(f"• Backend: {info.get('backend', 'None')}")
+            status_lines.append(f"• Model Loaded: {'✅ Yes' if info.get('is_loaded', False) else '❌ No'}")
             
-            messagebox.showinfo("AI Model Status", status_text)
+            if hasattr(self.ai_engine, 'model_name'):
+                status_lines.append(f"• Model Name: {getattr(self.ai_engine, 'model_name', 'Unknown')}")
+            
+            if info.get('model_path'):
+                status_lines.append(f"• Model Path: {info.get('model_path')}")
+            
+            # Backend availability
+            status_lines.append(f"\n🔧 Available Backends:")
+            available_backends = info.get('available_backends', {})
+            for backend, available in available_backends.items():
+                status = "✅ Available" if available else "❌ Not installed"
+                status_lines.append(f"• {backend}: {status}")
+            
+            # Model directory status
+            if hasattr(self.ai_engine, 'models_dir') and self.ai_engine.models_dir:
+                status_lines.append(f"\n📁 Models Directory: {self.ai_engine.models_dir}")
+                models_dir = Path(self.ai_engine.models_dir)
+                if models_dir.exists():
+                    gguf_files = list(models_dir.glob("*.gguf"))
+                    status_lines.append(f"• GGUF Models Found: {len(gguf_files)}")
+                    for model_file in gguf_files:
+                        size_mb = model_file.stat().st_size / (1024 * 1024)
+                        status_lines.append(f"  - {model_file.name} ({size_mb:.1f} MB)")
+                else:
+                    status_lines.append("• Directory does not exist")
+            
+            # Configuration
+            if hasattr(self.ai_engine, 'config'):
+                config = self.ai_engine.config
+                status_lines.append(f"\n⚙️ Configuration:")
+                status_lines.append(f"• Temperature: {config.get('temperature', 'N/A')}")
+                status_lines.append(f"• Max Tokens: {config.get('max_tokens', 'N/A')}")
+                status_lines.append(f"• Top P: {config.get('top_p', 'N/A')}")
+                status_lines.append(f"• Top K: {config.get('top_k', 'N/A')}")
+            
         else:
-            messagebox.showwarning("Warning", "AI engine not initialized")
+            status_lines.append("\n❌ AI engine not initialized")
+        
+        # Check for dependency issues
+        status_lines.append(f"\n🔍 Quick Dependency Check:")
+        try:
+            import llama_cpp
+            status_lines.append("• llama-cpp-python: ✅ Available")
+        except ImportError:
+            status_lines.append("• llama-cpp-python: ❌ Not installed")
+        
+        try:
+            import ollama
+            status_lines.append("• ollama: ✅ Available")
+        except ImportError:
+            status_lines.append("• ollama: ❌ Not installed")
+            
+        try:
+            import torch
+            import transformers
+            status_lines.append("• transformers: ✅ Available")
+        except ImportError:
+            status_lines.append("• transformers: ❌ Not installed")
+        
+        # Recommendations
+        status_lines.append(f"\n💡 Recommendations:")
+        if not self.ai_engine or not self.ai_engine.is_ready():
+            status_lines.append("• Install AI backend: pip install llama-cpp-python")
+            status_lines.append("• Download models: python download_models.py")
+            status_lines.append("• Or use the built-in model downloader")
+        elif self.ai_engine.backend == "fallback":
+            status_lines.append("• Running in fallback mode - install proper AI backend")
+            status_lines.append("• Download GGUF models to enable full functionality")
+        else:
+            status_lines.append("• AI system is properly configured!")
+            
+        status_text.insert(1.0, "\n".join(status_lines))
+        status_text.config(state=tk.DISABLED)
+        
+        # Add buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="Download Models", 
+                  command=lambda: [status_window.destroy(), self.show_model_downloader()]).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Reload AI Engine", 
+                  command=lambda: [self.reload_ai_model(), status_window.destroy()]).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(button_frame, text="Check Dependencies", 
+                  command=self.run_dependency_check).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(button_frame, text="Close", 
+                  command=status_window.destroy).pack(side=tk.RIGHT)
+    
+    def run_dependency_check(self):
+        """Run dependency checker"""
+        try:
+            from check_dependencies import DependencyChecker
+            
+            # Create a new window for dependency check results
+            dep_window = tk.Toplevel(self.root)
+            dep_window.title("Dependency Check")
+            dep_window.geometry("600x400")
+            dep_window.transient(self.root)
+            
+            main_frame = ttk.Frame(dep_window, padding="10")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            
+            result_text = scrolledtext.ScrolledText(main_frame, wrap=tk.WORD, font=("Courier", 10))
+            result_text.pack(fill=tk.BOTH, expand=True)
+            
+            # Capture dependency checker output
+            import io
+            import contextlib
+            
+            captured_output = io.StringIO()
+            
+            with contextlib.redirect_stdout(captured_output):
+                checker = DependencyChecker()
+                success = checker.run_full_check(fix=False)
+            
+            output = captured_output.getvalue()
+            result_text.insert(1.0, output)
+            result_text.config(state=tk.DISABLED)
+            
+            # Add buttons
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(fill=tk.X, pady=(10, 0))
+            
+            ttk.Button(button_frame, text="Install Missing", 
+                      command=lambda: self.install_missing_deps(dep_window)).pack(side=tk.LEFT)
+            ttk.Button(button_frame, text="Close", 
+                      command=dep_window.destroy).pack(side=tk.RIGHT)
+            
+        except ImportError:
+            messagebox.showerror("Error", "Dependency checker not available")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to run dependency check: {str(e)}")
+    
+    def install_missing_deps(self, parent_window):
+        """Install missing dependencies"""
+        result = messagebox.askyesno("Install Dependencies", 
+                                   "This will try to install missing dependencies. Continue?")
+        if result:
+            try:
+                from check_dependencies import DependencyChecker
+                checker = DependencyChecker()
+                
+                # Run check with fix=True
+                threading.Thread(target=lambda: self._install_deps_thread(checker, parent_window), 
+                               daemon=True).start()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to install dependencies: {str(e)}")
+    
+    def _install_deps_thread(self, checker, parent_window):
+        """Install dependencies in a separate thread"""
+        try:
+            success = checker.run_full_check(fix=True)
+            parent_window.after(0, lambda: self._deps_install_complete(success, parent_window))
+        except Exception as e:
+            parent_window.after(0, lambda: messagebox.showerror("Error", f"Installation failed: {str(e)}"))
+    
+    def _deps_install_complete(self, success, parent_window):
+        """Handle dependency installation completion"""
+        if success:
+            messagebox.showinfo("Success", "Dependencies installed successfully!")
+            parent_window.destroy()
+            # Offer to restart AI engine
+            result = messagebox.askyesno("Restart AI Engine", 
+                                       "Dependencies updated. Restart AI engine to use new components?")
+            if result:
+                self.reload_ai_model()
+        else:
+            messagebox.showwarning("Warning", "Some dependencies could not be installed automatically. Check console for details.")
             
     # Settings methods
     def show_theme_settings(self):
@@ -1268,9 +1776,10 @@ class ThemeSettingsDialog:
         
         self.window = tk.Toplevel(parent)
         self.window.title("🎨 Theme Settings")
-        self.window.geometry("500x400")
+        self.window.geometry("600x500")  # Made larger
         self.window.transient(parent)
         self.window.grab_set()
+        self.window.resizable(True, True)  # Allow resizing
         
         self.setup_ui()
         
@@ -1311,20 +1820,42 @@ class ThemeSettingsDialog:
         
         # Buttons
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X)
+        button_frame.pack(fill=tk.X, pady=(20, 0))
         
-        ttk.Button(button_frame, text="Apply", command=self.apply_settings).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(button_frame, text="Preview", command=self.preview_theme).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(button_frame, text="Cancel", command=self.window.destroy).pack(side=tk.RIGHT)
+        # Make buttons larger and more visible
+        ttk.Button(button_frame, text="✅ Apply Theme", 
+                  command=self.apply_settings, width=15).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="👁️ Preview", 
+                  command=self.preview_theme, width=15).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="❌ Cancel", 
+                  command=self.window.destroy, width=15).pack(side=tk.RIGHT)
         
     def apply_settings(self):
+        """Apply the selected theme and settings"""
+        # Update settings
         self.app.settings["theme"] = self.theme_var.get()
         self.app.settings["ui_settings"]["font_size"] = self.font_size.get()
         self.app.settings["ui_settings"]["show_timestamps"] = self.show_timestamps.get()
         self.app.settings["ui_settings"]["compact_mode"] = self.compact_mode.get()
         
+        # Apply theme immediately
+        self.app.current_theme = self.theme_var.get()
+        self.app.apply_theme()
+        
+        # Save to database if available
+        if self.app.db:
+            try:
+                self.app.db.save_setting("theme", self.theme_var.get())
+                self.app.db.save_setting("font_size", str(self.font_size.get()))
+                self.app.db.save_setting("show_timestamps", str(self.show_timestamps.get()))
+                self.app.db.save_setting("compact_mode", str(self.compact_mode.get()))
+            except Exception as e:
+                print(f"Failed to save settings to database: {e}")
+        
+        # Also save to JSON file as backup
         self.app.save_settings()
-        messagebox.showinfo("Settings Applied", "Theme settings applied!\nRestart OANA to see all changes.")
+        
+        messagebox.showinfo("Theme Applied", "Theme has been applied successfully!")
         self.window.destroy()
         
     def preview_theme(self):
@@ -1404,7 +1935,335 @@ class ChatSettingsDialog:
         self.app.clear_chat_confirm()
         
     def manage_saved_chats(self):
-        messagebox.showinfo("Feature", "Chat history manager will be implemented in future version.")
+        """Open chat history manager dialog"""
+        ChatHistoryManagerDialog(self.window, self.app)
+
+
+class ChatHistoryManagerDialog:
+    """Dialog for managing chat history and sessions"""
+    def __init__(self, parent, app):
+        self.parent = parent
+        self.app = app
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title("💬 Chat History Manager")
+        self.window.geometry("800x600")
+        self.window.transient(parent)
+        self.window.grab_set()
+        
+        self.setup_ui()
+        self.load_sessions()
+        
+    def setup_ui(self):
+        """Setup the chat history manager UI"""
+        main_frame = ttk.Frame(self.window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="💬 Chat History Manager", 
+                 font=("Arial", 14, "bold")).pack(pady=(0, 15))
+        
+        # Create paned window for sessions and messages
+        paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        paned.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Left panel - Sessions
+        sessions_frame = ttk.LabelFrame(paned, text="Chat Sessions", padding="5")
+        paned.add(sessions_frame, weight=1)
+        
+        # Sessions list
+        sessions_list_frame = ttk.Frame(sessions_frame)
+        sessions_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.sessions_tree = ttk.Treeview(sessions_list_frame, columns=("messages", "date"), show="tree headings")
+        self.sessions_tree.heading("#0", text="Session")
+        self.sessions_tree.heading("messages", text="Messages")
+        self.sessions_tree.heading("date", text="Last Access")
+        
+        self.sessions_tree.column("#0", width=150)
+        self.sessions_tree.column("messages", width=80)
+        self.sessions_tree.column("date", width=120)
+        
+        sessions_scrollbar = ttk.Scrollbar(sessions_list_frame, orient=tk.VERTICAL, 
+                                         command=self.sessions_tree.yview)
+        self.sessions_tree.configure(yscrollcommand=sessions_scrollbar.set)
+        
+        self.sessions_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sessions_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Session buttons
+        session_buttons = ttk.Frame(sessions_frame)
+        session_buttons.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Button(session_buttons, text="Load Session", 
+                  command=self.load_selected_session).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(session_buttons, text="Delete Session", 
+                  command=self.delete_selected_session).pack(side=tk.LEFT, padx=5)
+        ttk.Button(session_buttons, text="Export", 
+                  command=self.export_session).pack(side=tk.RIGHT)
+        
+        # Right panel - Messages
+        messages_frame = ttk.LabelFrame(paned, text="Messages", padding="5")
+        paned.add(messages_frame, weight=2)
+        
+        # Messages display
+        self.messages_text = scrolledtext.ScrolledText(messages_frame, wrap=tk.WORD, 
+                                                      font=("Consolas", 9), state=tk.DISABLED)
+        self.messages_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Bottom buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="New Session", 
+                  command=self.create_new_session).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="Backup All", 
+                  command=self.backup_all_chats).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="Clear All History", 
+                  command=self.clear_all_history).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Close", 
+                  command=self.window.destroy).pack(side=tk.RIGHT)
+        
+        # Bind selection event
+        self.sessions_tree.bind('<<TreeviewSelect>>', self.on_session_select)
+        
+    def load_sessions(self):
+        """Load chat sessions from database"""
+        if not self.app.db:
+            return
+            
+        try:
+            sessions = self.app.db.get_sessions()
+            
+            for session in sessions:
+                # Get message count for each session
+                messages = self.app.db.get_chat_history(session['session_id'], limit=10000)
+                message_count = len(messages)
+                
+                self.sessions_tree.insert("", tk.END, 
+                                        text=session['session_id'],
+                                        values=(message_count, session['last_accessed']))
+                                        
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load sessions: {str(e)}")
+            
+    def on_session_select(self, event):
+        """Handle session selection"""
+        selection = self.sessions_tree.selection()
+        if not selection:
+            return
+            
+        selected_item = selection[0]
+        session_id = self.sessions_tree.item(selected_item, 'text')
+        
+        if not self.app.db:
+            return
+            
+        try:
+            messages = self.app.db.get_chat_history(session_id, limit=1000)
+            
+            self.messages_text.config(state=tk.NORMAL)
+            self.messages_text.delete(1.0, tk.END)
+            
+            for msg in messages:
+                timestamp = msg['timestamp']
+                role = msg['role']
+                message = msg['message']
+                
+                if role == "You":
+                    self.messages_text.insert(tk.END, f"[{timestamp}] 🧑 You:\n", "user")
+                elif role == "AI":
+                    self.messages_text.insert(tk.END, f"[{timestamp}] 🤖 AI:\n", "ai")
+                else:
+                    self.messages_text.insert(tk.END, f"[{timestamp}] ℹ️  {role}:\n", "system")
+                    
+                self.messages_text.insert(tk.END, f"{message}\n\n")
+                
+            self.messages_text.config(state=tk.DISABLED)
+            
+            # Configure text tags for styling
+            self.messages_text.tag_configure("user", foreground="blue", font=("Arial", 9, "bold"))
+            self.messages_text.tag_configure("ai", foreground="green", font=("Arial", 9, "bold"))
+            self.messages_text.tag_configure("system", foreground="gray", font=("Arial", 9, "bold"))
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load messages: {str(e)}")
+            
+    def load_selected_session(self):
+        """Load selected session into main app"""
+        selection = self.sessions_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a session to load")
+            return
+            
+        selected_item = selection[0]
+        session_id = self.sessions_tree.item(selected_item, 'text')
+        
+        result = messagebox.askyesno("Load Session", 
+                                   f"Load session '{session_id}' into main chat?\nThis will replace current conversation.")
+        
+        if result:
+            self.app.current_session_id = session_id
+            # Clear current chat display
+            self.app.chat_display.config(state=tk.NORMAL)
+            self.app.chat_display.delete(1.0, tk.END)
+            self.app.chat_display.config(state=tk.DISABLED)
+            
+            # Load history from database
+            self.app.chat_history.clear()
+            self.app.load_data_from_database()
+            
+            # Refresh chat display
+            for msg in self.app.chat_history:
+                self.app.add_to_chat(msg['sender'], msg['content'])
+                
+            messagebox.showinfo("Success", f"Session '{session_id}' loaded successfully!")
+            self.window.destroy()
+            
+    def delete_selected_session(self):
+        """Delete selected session"""
+        selection = self.sessions_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a session to delete")
+            return
+            
+        selected_item = selection[0]
+        session_id = self.sessions_tree.item(selected_item, 'text')
+        
+        result = messagebox.askyesno("Delete Session", 
+                                   f"Are you sure you want to delete session '{session_id}'?\nThis action cannot be undone.")
+        
+        if result and self.app.db:
+            try:
+                deleted_count = self.app.db.clear_chat_history(session_id)
+                self.sessions_tree.delete(selected_item)
+                messagebox.showinfo("Success", f"Session '{session_id}' deleted ({deleted_count} messages removed)")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete session: {str(e)}")
+                
+    def export_session(self):
+        """Export selected session to file"""
+        selection = self.sessions_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a session to export")
+            return
+            
+        selected_item = selection[0]
+        session_id = self.sessions_tree.item(selected_item, 'text')
+        
+        filename = filedialog.asksaveasfilename(
+            title=f"Export session '{session_id}'",
+            defaultextension=".txt",
+            filetypes=[
+                ("Text files", "*.txt"),
+                ("JSON files", "*.json"),
+                ("HTML files", "*.html")
+            ]
+        )
+        
+        if filename and self.app.db:
+            try:
+                messages = self.app.db.get_chat_history(session_id, limit=10000)
+                ext = os.path.splitext(filename)[1].lower()
+                
+                if ext == '.json':
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        json.dump(messages, f, indent=2, ensure_ascii=False)
+                        
+                elif ext == '.html':
+                    html_content = f"""<!DOCTYPE html>
+<html><head><title>Chat Session: {session_id}</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 20px; }}
+.message {{ margin-bottom: 15px; padding: 10px; border-radius: 5px; }}
+.user {{ background-color: #e3f2fd; }}
+.ai {{ background-color: #f1f8e9; }}
+.system {{ background-color: #f5f5f5; }}
+.timestamp {{ color: #666; font-size: 0.9em; }}
+</style></head><body>
+<h1>Chat Session: {session_id}</h1>
+"""
+                    for msg in messages:
+                        role_class = msg['role'].lower()
+                        message_html = msg['message'].replace('\n', '<br>')
+                        html_content += f"""
+<div class="message {role_class}">
+    <div class="timestamp">[{msg['timestamp']}] {msg['role']}</div>
+    <div>{message_html}</div>
+</div>
+"""
+                    html_content += "</body></html>"
+                    
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        f.write(html_content)
+                        
+                else:  # txt format
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        f.write(f"Chat Session: {session_id}\n")
+                        f.write("=" * 50 + "\n\n")
+                        
+                        for msg in messages:
+                            f.write(f"[{msg['timestamp']}] {msg['role']}:\n")
+                            f.write(f"{msg['message']}\n\n")
+                            
+                messagebox.showinfo("Success", f"Session exported to {filename}")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to export session: {str(e)}")
+                
+    def create_new_session(self):
+        """Create a new chat session"""
+        session_id = simpledialog.askstring("New Session", "Enter session name:", 
+                                           initialvalue=f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        
+        if session_id and self.app.db:
+            try:
+                self.app.db.create_session(session_id, f"Session created on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                messagebox.showinfo("Success", f"Session '{session_id}' created!")
+                self.load_sessions()  # Refresh the list
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to create session: {str(e)}")
+                
+    def backup_all_chats(self):
+        """Backup all chat history to JSON file"""
+        filename = filedialog.asksaveasfilename(
+            title="Backup all chat history",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json")]
+        )
+        
+        if filename and self.app.db:
+            try:
+                success = self.app.db.backup_to_json(filename)
+                if success:
+                    messagebox.showinfo("Success", f"All chat history backed up to {filename}")
+                else:
+                    messagebox.showerror("Error", "Failed to create backup")
+                    
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to backup chats: {str(e)}")
+                
+    def clear_all_history(self):
+        """Clear all chat history"""
+        result = messagebox.askyesno("Clear All History", 
+                                   "Are you sure you want to clear ALL chat history?\nThis action cannot be undone!")
+        
+        if result and self.app.db:
+            try:
+                # Clear all sessions
+                with sqlite3.connect(self.app.db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM chat_history")
+                    cursor.execute("DELETE FROM sessions")
+                    conn.commit()
+                    
+                messagebox.showinfo("Success", "All chat history cleared!")
+                self.load_sessions()  # Refresh the list
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to clear history: {str(e)}")
 
 
 class AISettingsDialog:
@@ -1493,7 +2352,68 @@ class AISettingsDialog:
             self.preferred_backend.set("llama-cpp")
             
     def test_settings(self):
-        messagebox.showinfo("Test", "AI settings test will be implemented in future version.")
+        """Test AI settings by sending a simple query"""
+        try:
+            # Create a test message
+            test_prompt = "Test message: Please respond with 'AI test successful!'"
+            
+            # Show processing dialog
+            test_window = tk.Toplevel(self.window)
+            test_window.title("Testing AI Settings")
+            test_window.geometry("300x150")
+            test_window.transient(self.window)
+            test_window.grab_set()
+            
+            ttk.Label(test_window, text="Testing AI with current settings...").pack(pady=20)
+            progress = ttk.Progressbar(test_window, mode='indeterminate')
+            progress.pack(pady=10, padx=20, fill=tk.X)
+            progress.start()
+            
+            def run_test():
+                try:
+                    # Test if AI engine is available
+                    if self.app.ai_engine and self.app.ai_engine.model:
+                        # Try a simple generation
+                        response = self.app.ai_engine.generate_response(
+                            test_prompt, 
+                            temperature=self.temperature.get(),
+                            max_tokens=min(50, self.max_tokens.get())
+                        )
+                        progress.stop()
+                        test_window.destroy()
+                        
+                        result_window = tk.Toplevel(self.window)
+                        result_window.title("Test Results")
+                        result_window.geometry("400x200")
+                        result_window.transient(self.window)
+                        
+                        ttk.Label(result_window, text="✅ AI Test Successful!", 
+                                 font=("Arial", 12, "bold"), foreground="green").pack(pady=10)
+                        
+                        result_text = scrolledtext.ScrolledText(result_window, height=6, wrap=tk.WORD)
+                        result_text.pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
+                        result_text.insert(tk.END, f"Response: {response}")
+                        result_text.config(state=tk.DISABLED)
+                        
+                        ttk.Button(result_window, text="Close", 
+                                  command=result_window.destroy).pack(pady=5)
+                    else:
+                        progress.stop()
+                        test_window.destroy()
+                        messagebox.showwarning("Test Failed", 
+                                             "AI model not loaded. Please load a model first.")
+                        
+                except Exception as e:
+                    progress.stop()
+                    test_window.destroy()
+                    messagebox.showerror("Test Failed", 
+                                       f"AI test failed: {str(e)}")
+            
+            # Run test in thread to avoid blocking UI
+            threading.Thread(target=run_test, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to run test: {str(e)}")
 
 
 class AdvancedSettingsDialog:
@@ -1555,14 +2475,351 @@ Session Information:
 class FileManagerDialog:
     """Dialog for managing files and chat history"""
     def __init__(self, parent, app):
+        self.app = app
         self.window = tk.Toplevel(parent)
         self.window.title("🗂️ File Manager")
-        self.window.geometry("600x500")
+        self.window.geometry("700x600")
         self.window.transient(parent)
+        self.window.grab_set()
         
-        ttk.Label(self.window, text="🗂️ File Manager", font=("Arial", 14, "bold")).pack(pady=20)
-        ttk.Label(self.window, text="File management features will be implemented here.").pack(pady=20)
-        ttk.Button(self.window, text="Close", command=self.window.destroy).pack(pady=20)
+        self.setup_ui()
+        self.refresh_files()
+        
+    def setup_ui(self):
+        """Setup file manager UI"""
+        main_frame = ttk.Frame(self.window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(main_frame, text="🗂️ File Manager", 
+                 font=("Arial", 14, "bold")).pack(pady=(0, 15))
+        
+        # Create notebook for tabs
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Documents tab
+        docs_frame = ttk.Frame(notebook)
+        notebook.add(docs_frame, text="📄 Documents")
+        self.setup_documents_tab(docs_frame)
+        
+        # Chat History tab
+        chat_frame = ttk.Frame(notebook)
+        notebook.add(chat_frame, text="💬 Chat History")
+        self.setup_chat_history_tab(chat_frame)
+        
+        # System Files tab
+        system_frame = ttk.Frame(notebook)
+        notebook.add(system_frame, text="⚙️ System Files")
+        self.setup_system_files_tab(system_frame)
+        
+        # Bottom buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(button_frame, text="Refresh", 
+                  command=self.refresh_files).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="Open Data Folder", 
+                  command=self.open_data_folder).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Close", 
+                  command=self.window.destroy).pack(side=tk.RIGHT)
+        
+    def setup_documents_tab(self, parent):
+        """Setup documents management tab"""
+        # Document list
+        list_frame = ttk.Frame(parent)
+        list_frame.pack(fill=tk.BOTH, expand=True, padding="10")
+        
+        ttk.Label(list_frame, text="Uploaded Documents:").pack(anchor=tk.W, pady=(0, 5))
+        
+        self.docs_tree = ttk.Treeview(list_frame, columns=("size", "type"), show="tree headings")
+        self.docs_tree.heading("#0", text="Document")
+        self.docs_tree.heading("size", text="Size")
+        self.docs_tree.heading("type", text="Type")
+        
+        self.docs_tree.column("#0", width=300)
+        self.docs_tree.column("size", width=80)
+        self.docs_tree.column("type", width=60)
+        
+        docs_scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.docs_tree.yview)
+        self.docs_tree.configure(yscrollcommand=docs_scroll.set)
+        
+        self.docs_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        docs_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Document buttons
+        doc_buttons = ttk.Frame(parent)
+        doc_buttons.pack(fill=tk.X, padding="10")
+        
+        ttk.Button(doc_buttons, text="View Document", 
+                  command=self.view_selected_doc).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(doc_buttons, text="Export Document", 
+                  command=self.export_selected_doc).pack(side=tk.LEFT, padx=5)
+        ttk.Button(doc_buttons, text="Remove Document", 
+                  command=self.remove_selected_doc).pack(side=tk.LEFT, padx=5)
+        
+    def setup_chat_history_tab(self, parent):
+        """Setup chat history management tab"""
+        # Info label
+        ttk.Label(parent, text="Chat History Management", 
+                 font=("Arial", 11, "bold")).pack(pady=10)
+        
+        # Stats frame
+        stats_frame = ttk.LabelFrame(parent, text="Statistics", padding="10")
+        stats_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        total_messages = len(self.app.chat_history)
+        self.chat_stats_label = ttk.Label(stats_frame, 
+                                         text=f"Total Messages: {total_messages}")
+        self.chat_stats_label.pack(anchor=tk.W)
+        
+        # Buttons
+        buttons_frame = ttk.Frame(parent)
+        buttons_frame.pack(fill=tk.X, padx=10, pady=20)
+        
+        ttk.Button(buttons_frame, text="💬 Open Chat History Manager", 
+                  command=self.open_chat_manager).pack(fill=tk.X, pady=5)
+        ttk.Button(buttons_frame, text="📥 Export All Chats", 
+                  command=self.export_all_chats).pack(fill=tk.X, pady=5)
+        ttk.Button(buttons_frame, text="🗑️ Clear All Chat History", 
+                  command=self.clear_all_chats).pack(fill=tk.X, pady=5)
+        
+    def setup_system_files_tab(self, parent):
+        """Setup system files management tab"""
+        # System info
+        ttk.Label(parent, text="System Files & Settings", 
+                 font=("Arial", 11, "bold")).pack(pady=10)
+        
+        info_frame = ttk.LabelFrame(parent, text="File Locations", padding="10")
+        info_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        app_dir = Path(__file__).parent
+        
+        locations_text = f"""
+Application Directory: {app_dir}
+Settings File: user_settings.json
+Database: data/oana_database.db
+Models Directory: models/
+Logs Directory: logs/
+        """
+        
+        ttk.Label(info_frame, text=locations_text, justify=tk.LEFT).pack(anchor=tk.W)
+        
+        # System buttons
+        sys_buttons = ttk.Frame(parent)
+        sys_buttons.pack(fill=tk.X, padx=10, pady=20)
+        
+        ttk.Button(sys_buttons, text="🔧 Open Settings File", 
+                  command=self.open_settings_file).pack(fill=tk.X, pady=2)
+        ttk.Button(sys_buttons, text="🗃️ Open Database File", 
+                  command=self.open_database_file).pack(fill=tk.X, pady=2)
+        ttk.Button(sys_buttons, text="📋 View Logs", 
+                  command=self.view_logs).pack(fill=tk.X, pady=2)
+        ttk.Button(sys_buttons, text="🧹 Clean Temp Files", 
+                  command=self.clean_temp_files).pack(fill=tk.X, pady=2)
+        
+    def refresh_files(self):
+        """Refresh file listings"""
+        # Clear documents tree
+        for item in self.docs_tree.get_children():
+            self.docs_tree.delete(item)
+            
+        # Populate documents
+        for i, doc in enumerate(self.app.uploaded_documents):
+            filename = doc.get('filename', f'Document {i+1}')
+            size = len(doc.get('content', ''))
+            doc_type = Path(filename).suffix.upper() if '.' in filename else 'TXT'
+            
+            self.docs_tree.insert("", tk.END, text=filename, 
+                                 values=(f"{size:,} chars", doc_type))
+                                 
+    def view_selected_doc(self):
+        """View selected document content"""
+        selection = self.docs_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a document to view")
+            return
+            
+        item = selection[0]
+        doc_name = self.docs_tree.item(item, 'text')
+        
+        # Find the document
+        doc_content = None
+        for doc in self.app.uploaded_documents:
+            if doc.get('filename', '').endswith(doc_name.split('/')[-1]):
+                doc_content = doc.get('content', '')
+                break
+                
+        if doc_content:
+            # Show content in new window
+            view_window = tk.Toplevel(self.window)
+            view_window.title(f"Document: {doc_name}")
+            view_window.geometry("700x500")
+            
+            text_widget = scrolledtext.ScrolledText(view_window, wrap=tk.WORD)
+            text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            text_widget.insert(tk.END, doc_content)
+            text_widget.config(state=tk.DISABLED)
+            
+    def export_selected_doc(self):
+        """Export selected document"""
+        messagebox.showinfo("Info", "Document export feature available through main document panel")
+        
+    def remove_selected_doc(self):
+        """Remove selected document"""
+        selection = self.docs_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a document to remove")
+            return
+            
+        if messagebox.askyesno("Confirm", "Remove selected document?"):
+            item = selection[0]
+            doc_name = self.docs_tree.item(item, 'text')
+            
+            # Remove from app's document list
+            self.app.uploaded_documents = [
+                doc for doc in self.app.uploaded_documents 
+                if not doc.get('filename', '').endswith(doc_name.split('/')[-1])
+            ]
+            
+            self.refresh_files()
+            messagebox.showinfo("Success", "Document removed successfully")
+            
+    def open_chat_manager(self):
+        """Open chat history manager"""
+        from app import ChatHistoryManagerDialog
+        ChatHistoryManagerDialog(self.window, self.app)
+        
+    def export_all_chats(self):
+        """Export all chat history"""
+        if self.app.db:
+            filename = filedialog.asksaveasfilename(
+                title="Export All Chats",
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json")]
+            )
+            
+            if filename:
+                try:
+                    success = self.app.db.backup_to_json(filename)
+                    if success:
+                        messagebox.showinfo("Success", f"All chats exported to {filename}")
+                    else:
+                        messagebox.showerror("Error", "Failed to export chats")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Export failed: {str(e)}")
+        else:
+            messagebox.showwarning("Warning", "Database not available")
+            
+    def clear_all_chats(self):
+        """Clear all chat history"""
+        if messagebox.askyesno("Warning", "This will permanently delete ALL chat history. Continue?"):
+            if self.app.db:
+                try:
+                    with sqlite3.connect(self.app.db.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM chat_history")
+                        cursor.execute("DELETE FROM sessions")
+                        conn.commit()
+                    messagebox.showinfo("Success", "All chat history cleared")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to clear history: {str(e)}")
+            else:
+                messagebox.showwarning("Warning", "Database not available")
+                
+    def open_data_folder(self):
+        """Open data folder in file explorer"""
+        app_dir = Path(__file__).parent
+        data_dir = app_dir / "data"
+        
+        try:
+            if platform.system() == "Windows":
+                os.startfile(data_dir)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", data_dir])
+            else:  # Linux
+                subprocess.run(["xdg-open", data_dir])
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open data folder: {str(e)}")
+            
+    def open_settings_file(self):
+        """Open settings file in default editor"""
+        settings_file = Path(__file__).parent / "user_settings.json"
+        
+        try:
+            if platform.system() == "Windows":
+                os.startfile(settings_file)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", settings_file])
+            else:  # Linux
+                subprocess.run(["xdg-open", settings_file])
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open settings file: {str(e)}")
+            
+    def open_database_file(self):
+        """Open database file location"""
+        db_file = Path(__file__).parent / "data" / "oana_database.db"
+        db_dir = db_file.parent
+        
+        try:
+            if platform.system() == "Windows":
+                os.startfile(db_dir)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", db_dir])
+            else:  # Linux
+                subprocess.run(["xdg-open", db_dir])
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open database location: {str(e)}")
+            
+    def view_logs(self):
+        """View application logs"""
+        logs_dir = Path(__file__).parent / "logs"
+        
+        if not logs_dir.exists():
+            messagebox.showinfo("Info", "No logs directory found")
+            return
+            
+        log_files = list(logs_dir.glob("*.log"))
+        
+        if not log_files:
+            messagebox.showinfo("Info", "No log files found")
+            return
+            
+        # Show latest log file
+        latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
+        
+        try:
+            with open(latest_log, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            log_window = tk.Toplevel(self.window)
+            log_window.title(f"Log: {latest_log.name}")
+            log_window.geometry("800x600")
+            
+            text_widget = scrolledtext.ScrolledText(log_window, wrap=tk.WORD, font=("Consolas", 9))
+            text_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            text_widget.insert(tk.END, content)
+            text_widget.config(state=tk.DISABLED)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read log file: {str(e)}")
+            
+    def clean_temp_files(self):
+        """Clean temporary files"""
+        try:
+            temp_count = 0
+            app_dir = Path(__file__).parent
+            
+            # Clean __pycache__ directories
+            for pycache_dir in app_dir.rglob("__pycache__"):
+                for pyc_file in pycache_dir.glob("*.pyc"):
+                    pyc_file.unlink()
+                    temp_count += 1
+                    
+            messagebox.showinfo("Success", f"Cleaned {temp_count} temporary files")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to clean temp files: {str(e)}")
 
 
 class TestResultDialog:
@@ -1707,10 +2964,19 @@ class ModelDownloadDialog:
     def __init__(self, parent, ai_engine):
         self.parent = parent
         self.ai_engine = ai_engine
+        self.downloader = None
+        
+        # Import the model downloader
+        try:
+            from download_models import ModelDownloader
+            self.downloader = ModelDownloader()
+        except ImportError:
+            messagebox.showerror("Error", "Model downloader not available. Please check download_models.py")
+            return
         
         self.window = tk.Toplevel(parent)
         self.window.title("Download AI Models")
-        self.window.geometry("600x400")
+        self.window.geometry("700x500")
         self.window.transient(parent)
         self.window.grab_set()
         
@@ -1720,49 +2986,201 @@ class ModelDownloadDialog:
         main_frame = ttk.Frame(self.window, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(main_frame, text="Available Models", font=("Arial", 12, "bold")).pack(anchor=tk.W)
+        # Title
+        title_label = ttk.Label(main_frame, text="AI Model Downloader", font=("Arial", 14, "bold"))
+        title_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        # Status frame
+        status_frame = ttk.LabelFrame(main_frame, text="Current Status", padding="5")
+        status_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.status_text = scrolledtext.ScrolledText(status_frame, height=4, wrap=tk.WORD)
+        self.status_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Check current model status
+        self.check_current_status()
+        
+        # Model list frame
+        model_frame = ttk.LabelFrame(main_frame, text="Available Models", padding="5")
+        model_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         # Model list
-        self.model_tree = ttk.Treeview(main_frame, columns=("size", "description"), show="tree headings")
+        columns = ("size", "description", "status")
+        self.model_tree = ttk.Treeview(model_frame, columns=columns, show="tree headings", height=8)
         self.model_tree.heading("#0", text="Model Name")
         self.model_tree.heading("size", text="Size")
         self.model_tree.heading("description", text="Description")
-        self.model_tree.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        self.model_tree.heading("status", text="Status")
         
-        # Add sample models
-        models = [
-            ("TinyLlama-1.1B", "637 MB", "Lightweight model for basic chat"),
-            ("Llama-2-7B-Chat", "3.8 GB", "Balanced performance and quality"),
-            ("CodeLlama-7B", "3.8 GB", "Specialized for code generation"),
-        ]
+        # Configure column widths
+        self.model_tree.column("#0", width=200)
+        self.model_tree.column("size", width=100)
+        self.model_tree.column("description", width=200)
+        self.model_tree.column("status", width=150)
         
-        for model, size, desc in models:
-            self.model_tree.insert("", tk.END, text=model, values=(size, desc))
-            
+        self.model_tree.pack(fill=tk.BOTH, expand=True)
+        
+        # Populate model list
+        self.populate_models()
+        
         # Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
         
-        ttk.Button(button_frame, text="Download Selected", command=self.download_model).pack(side=tk.LEFT)
-        ttk.Button(button_frame, text="Browse Local", command=self.browse_local).pack(side=tk.LEFT, padx=(10, 0))
-        ttk.Button(button_frame, text="Close", command=self.window.destroy).pack(side=tk.RIGHT)
+        ttk.Button(button_frame, text="Download Selected", 
+                  command=self.download_selected_model).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Download Recommended", 
+                  command=self.download_recommended).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(button_frame, text="Refresh Status", 
+                  command=self.refresh_status).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(button_frame, text="Browse Local Files", 
+                  command=self.browse_local).pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Button(button_frame, text="Close", 
+                  command=self.window.destroy).pack(side=tk.RIGHT)
         
-    def download_model(self):
+    def check_current_status(self):
+        """Check current AI engine and model status"""
+        status_lines = []
+        
+        # Check AI engine status
+        if self.ai_engine and hasattr(self.ai_engine, 'get_model_info'):
+            model_info = self.ai_engine.get_model_info()
+            status_lines.append(f"Current Backend: {model_info.get('backend', 'Unknown')}")
+            status_lines.append(f"Model Loaded: {'Yes' if model_info.get('is_loaded', False) else 'No'}")
+            
+            available_backends = model_info.get('available_backends', {})
+            status_lines.append("Available Backends:")
+            for backend, available in available_backends.items():
+                status = "✅" if available else "❌"
+                status_lines.append(f"  • {backend}: {status}")
+        else:
+            status_lines.append("AI Engine not initialized")
+        
+        # Check for downloaded models
+        if self.downloader:
+            models_dir = self.downloader.models_dir
+            if models_dir.exists():
+                gguf_files = list(models_dir.glob("*.gguf"))
+                status_lines.append(f"\nDownloaded Models: {len(gguf_files)}")
+                for model_file in gguf_files:
+                    size_mb = model_file.stat().st_size / (1024 * 1024)
+                    status_lines.append(f"  • {model_file.name} ({size_mb:.1f} MB)")
+            else:
+                status_lines.append("\nNo models directory found")
+        
+        self.status_text.delete(1.0, tk.END)
+        self.status_text.insert(1.0, "\n".join(status_lines))
+        
+    def populate_models(self):
+        """Populate the model list"""
+        if not self.downloader:
+            return
+            
+        # Clear existing items
+        for item in self.model_tree.get_children():
+            self.model_tree.delete(item)
+        
+        # Add models from downloader
+        for i, model in enumerate(self.downloader.recommended_models):
+            # Check if model is already downloaded
+            local_path = self.downloader.models_dir / model['filename']
+            if local_path.exists():
+                status = "✅ Downloaded"
+            else:
+                status = "⬇️ Available"
+            
+            # Add recommended tag
+            name = model['name']
+            if model.get('recommended', False):
+                name += " ⭐"
+            
+            self.model_tree.insert("", tk.END, text=name, 
+                                 values=(model['size'], model['description'], status))
+    
+    def download_selected_model(self):
+        """Download the selected model"""
         selection = self.model_tree.selection()
         if not selection:
             messagebox.showwarning("Warning", "Please select a model to download")
             return
-            
-        model_name = self.model_tree.item(selection[0])['text']
-        messagebox.showinfo("Info", f"Model download feature will be implemented.\nSelected: {model_name}")
+        
+        if not self.downloader:
+            messagebox.showerror("Error", "Model downloader not available")
+            return
+        
+        # Get selected model index
+        selected_item = selection[0]
+        item_index = self.model_tree.index(selected_item)
+        model_index = item_index + 1  # downloader uses 1-based indexing
+        
+        # Start download in a separate thread
+        threading.Thread(target=self._download_model_thread, 
+                        args=(model_index,), daemon=True).start()
+    
+    def download_recommended(self):
+        """Download all recommended models"""
+        if not self.downloader:
+            messagebox.showerror("Error", "Model downloader not available")
+            return
+        
+        result = messagebox.askyesno("Confirm Download", 
+                                   "This will download all recommended models. This may take some time. Continue?")
+        if result:
+            threading.Thread(target=self._download_recommended_thread, daemon=True).start()
+    
+    def _download_model_thread(self, model_index):
+        """Download a single model in a thread"""
+        try:
+            success = self.downloader.download_model(model_index)
+            self.window.after(0, lambda: self._download_complete(success))
+        except Exception as e:
+            self.window.after(0, lambda: messagebox.showerror("Download Error", f"Failed to download model: {str(e)}"))
+    
+    def _download_recommended_thread(self):
+        """Download recommended models in a thread"""
+        try:
+            self.downloader.download_recommended()
+            self.window.after(0, lambda: self._download_complete(True))
+        except Exception as e:
+            self.window.after(0, lambda: messagebox.showerror("Download Error", f"Failed to download models: {str(e)}"))
+    
+    def _download_complete(self, success):
+        """Handle download completion"""
+        if success:
+            messagebox.showinfo("Success", "Model download completed!")
+            self.refresh_status()
+            # Offer to reload AI engine
+            result = messagebox.askyesno("Reload AI Engine", 
+                                       "Model downloaded successfully. Would you like to reload the AI engine to use the new model?")
+            if result and self.ai_engine:
+                self.ai_engine.reload_model()
+        else:
+            messagebox.showerror("Error", "Model download failed. Check the console for details.")
+    
+    def refresh_status(self):
+        """Refresh the status and model list"""
+        self.check_current_status()
+        self.populate_models()
         
     def browse_local(self):
+        """Browse for local model files"""
         filename = filedialog.askopenfilename(
             title="Select local model file",
             filetypes=[("GGUF files", "*.gguf"), ("All files", "*.*")]
         )
         if filename:
-            messagebox.showinfo("Info", f"Local model selected: {os.path.basename(filename)}")
+            # Copy file to models directory
+            if self.downloader:
+                try:
+                    import shutil
+                    dest_path = self.downloader.models_dir / os.path.basename(filename)
+                    shutil.copy2(filename, dest_path)
+                    messagebox.showinfo("Success", f"Model copied to: {dest_path}")
+                    self.refresh_status()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to copy model: {str(e)}")
+            else:
+                messagebox.showinfo("Info", f"Local model selected: {os.path.basename(filename)}")
 
 
 class ModelSettingsDialog:
