@@ -56,17 +56,55 @@ coverage.xml
 # VS Code
 .vscode/
 
-# Data and models
-data/
-logs/
+# Build and production directories
+prod/
+production/
+release/
+*.spec
+*.exe
+
+# Data and logs (keep structure, ignore content)
+data/chat_history/*.json
+logs/*.log
+logs/*.txt
+
+# Models (ignore all model files - too large for GitHub)
+models/*.bin
+models/*.gguf
+models/*.safetensors
+models/*.pt
+models/*.onnx
 models/
 
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Windows
+# Windows batch files (keep essential ones)
 *.bat
+!install.bat
+!start.bat
 
-# Ignore user settings
+# Database journals
+*.db-journal
+*.sqlite-journal
+
+# Config backups
+*.bak
+config.json.bak
+user_settings.json.bak
+
+# NSIS installer files
+installer.exe
+setup.exe
+oana-installer.exe
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# User settings (keep template)
 user_settings.json

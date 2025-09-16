@@ -35,8 +35,9 @@ class OANA:
     def __init__(self, root):
         self.root = root
         self.root.title("OANA - Offline AI and Note Assistant")
-        self.root.geometry("1400x900")
-        self.root.minsize(1000, 700)
+        
+        # Make application responsive to screen size
+        self._setup_responsive_window()
         
         # Theme and styling with enhanced visual design
         self.current_theme = "light"
@@ -280,6 +281,47 @@ class OANA:
                 json.dump(self.settings, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Error saving settings: {e}")
+    
+    def _setup_responsive_window(self):
+        """Setup responsive window sizing based on screen dimensions"""
+        try:
+            # Get screen dimensions
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            # Calculate responsive dimensions (80% of screen size)
+            window_width = min(1400, int(screen_width * 0.8))
+            window_height = min(900, int(screen_height * 0.8))
+            
+            # Set minimum size based on screen size
+            min_width = min(1000, int(screen_width * 0.6))
+            min_height = min(700, int(screen_height * 0.6))
+            
+            # Center the window
+            x = (screen_width - window_width) // 2
+            y = (screen_height - window_height) // 2
+            
+            # Apply responsive sizing
+            self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+            self.root.minsize(min_width, min_height)
+            
+            # Store screen info for other dialogs
+            self.screen_width = screen_width
+            self.screen_height = screen_height
+            
+            # Make window responsive to DPI scaling
+            try:
+                self.root.tk.call('tk', 'scaling', '-displayof', '.', 1.0)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"Error setting up responsive window: {e}")
+            # Fallback to fixed size
+            self.root.geometry("1200x800")
+            self.root.minsize(800, 600)
+            self.screen_width = 1920
+            self.screen_height = 1080
             
     def apply_theme(self):
         """Apply current theme and refresh all UI elements"""
