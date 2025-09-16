@@ -348,33 +348,52 @@ class OANA:
         style = ttk.Style()
         theme = self.themes[self.settings.get("theme", "light")]
         
+        # Try to use a theme that supports custom colors better
+        try:
+            style.theme_use('clam')  # clam theme supports better customization
+        except:
+            try:
+                style.theme_use('alt')  # fallback to alt theme
+            except:
+                pass  # use default theme
+        
         # Configure default ttk button style to ensure all buttons have proper theming
         style.configure("TButton",
-                       padding=(12, 8),
-                       relief="flat",
-                       borderwidth=0,
+                       padding=(10, 6),
+                       relief="raised",
+                       borderwidth=1,
+                       focuscolor="none",
                        font=("Segoe UI", 9, "bold"),
-                       background=theme["button_bg"],
-                       foreground=theme["button_fg"])
+                       foreground="#ffffff",
+                       background="#3498db")
         
         style.map("TButton",
-                  background=[('active', theme["button_hover"]),
-                            ('pressed', theme["accent"]),
-                            ('disabled', theme["border"])],
-                  foreground=[('disabled', theme["fg"])])
+                  background=[('active', '#2980b9'),
+                            ('pressed', '#21618c'),
+                            ('disabled', '#95a5a6')],
+                  foreground=[('active', '#ffffff'),
+                            ('pressed', '#ffffff'),
+                            ('disabled', '#7f8c8d')],
+                  relief=[('pressed', 'sunken'),
+                         ('active', 'raised')])
         
         # Configure modern button styles with hover effects
         style.configure("Modern.TButton",
                        padding=(12, 8),
-                       relief="flat",
-                       borderwidth=0,
-                       font=("Segoe UI", 9, "bold"),
-                       background=theme["button_bg"],
-                       foreground=theme["button_fg"])
+                       relief="raised",
+                       borderwidth=1,
+                       focuscolor="none",
+                       font=("Segoe UI", 10, "bold"),
+                       foreground="#ffffff",
+                       background="#3498db")
         
         style.map("Modern.TButton",
-                  background=[('active', theme["button_hover"]),
-                            ('pressed', theme["accent"])])
+                  background=[('active', '#2980b9'),
+                            ('pressed', '#21618c')],
+                  foreground=[('active', '#ffffff'),
+                            ('pressed', '#ffffff')],
+                  relief=[('pressed', 'sunken'),
+                         ('active', 'raised')])
         
         # Enhanced label styles
         style.configure("TLabel", 
@@ -425,36 +444,68 @@ class OANA:
         
         # Button variants with high contrast
         style.configure("Success.TButton", 
-                       background=theme["success"],
-                       foreground="white",
-                       font=("Segoe UI", 9, "bold"))
+                       padding=(10, 6),
+                       relief="raised",
+                       borderwidth=1,
+                       focuscolor="none",
+                       font=("Segoe UI", 9, "bold"),
+                       foreground="#ffffff",
+                       background="#27ae60")
         style.map("Success.TButton",
                   background=[('active', '#219a52'),
-                            ('pressed', '#1e8449')])
+                            ('pressed', '#1e8449')],
+                  foreground=[('active', '#ffffff'),
+                            ('pressed', '#ffffff')],
+                  relief=[('pressed', 'sunken'),
+                         ('active', 'raised')])
         
         style.configure("Warning.TButton", 
-                       background=theme["warning"],
-                       foreground="white",
-                       font=("Segoe UI", 9, "bold"))
+                       padding=(10, 6),
+                       relief="raised",
+                       borderwidth=1,
+                       focuscolor="none",
+                       font=("Segoe UI", 9, "bold"),
+                       foreground="#ffffff",
+                       background="#f39c12")
         style.map("Warning.TButton",
                   background=[('active', '#e67e22'),
-                            ('pressed', '#d35400')])
+                            ('pressed', '#d35400')],
+                  foreground=[('active', '#ffffff'),
+                            ('pressed', '#ffffff')],
+                  relief=[('pressed', 'sunken'),
+                         ('active', 'raised')])
         
         style.configure("Danger.TButton", 
-                       background=theme["danger"],
-                       foreground="white",
-                       font=("Segoe UI", 9, "bold"))
+                       padding=(10, 6),
+                       relief="raised",
+                       borderwidth=1,
+                       focuscolor="none",
+                       font=("Segoe UI", 9, "bold"),
+                       foreground="#ffffff",
+                       background="#e74c3c")
         style.map("Danger.TButton",
                   background=[('active', '#c0392b'),
-                            ('pressed', '#a93226')])
+                            ('pressed', '#a93226')],
+                  foreground=[('active', '#ffffff'),
+                            ('pressed', '#ffffff')],
+                  relief=[('pressed', 'sunken'),
+                         ('active', 'raised')])
         
         style.configure("Info.TButton", 
-                       background=theme["accent"],
-                       foreground="white",
-                       font=("Segoe UI", 9, "bold"))
+                       padding=(10, 6),
+                       relief="raised",
+                       borderwidth=1,
+                       focuscolor="none",
+                       font=("Segoe UI", 9, "bold"),
+                       foreground="#ffffff",
+                       background="#3498db")
         style.map("Info.TButton",
-                  background=[('active', theme["button_hover"]),
-                            ('pressed', '#2471a3')])
+                  background=[('active', '#2980b9'),
+                            ('pressed', '#2471a3')],
+                  foreground=[('active', '#ffffff'),
+                            ('pressed', '#ffffff')],
+                  relief=[('pressed', 'sunken'),
+                         ('active', 'raised')])
         
         # Enhanced frame styles
         style.configure("TFrame",
