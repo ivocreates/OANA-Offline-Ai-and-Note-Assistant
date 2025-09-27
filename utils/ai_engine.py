@@ -4,6 +4,7 @@ Supports multiple backends: llama-cpp-python, Ollama, transformers
 """
 
 import os
+import sys
 import json
 from typing import Optional, List, Dict
 
@@ -71,11 +72,24 @@ class AIEngine:
     def _auto_detect_backend(self):
         """Auto-detect best available backend"""
         # Check for local GGUF models in multiple possible locations
-        possible_model_dirs = [
-            os.path.join(os.path.dirname(__file__), "..", "models"),  # Default location
-            os.path.join(os.getcwd(), "models"),  # Current working directory
-            os.path.join(os.path.expanduser("~"), ".oana", "models"),  # User home directory
-        ]
+        # Handle both development and PyInstaller packaged environments
+        
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # Running as PyInstaller executable
+            app_dir = sys._MEIPASS
+            possible_model_dirs = [
+                os.path.join(app_dir, "models"),  # Packaged models directory
+                os.path.join(os.path.dirname(sys.executable), "models"),  # Next to exe
+                os.path.join(os.getcwd(), "models"),  # Current working directory
+                os.path.join(os.path.expanduser("~"), ".oana", "models"),  # User home directory
+            ]
+        else:
+            # Running as Python script (development)
+            possible_model_dirs = [
+                os.path.join(os.path.dirname(__file__), "..", "models"),  # Default location
+                os.path.join(os.getcwd(), "models"),  # Current working directory
+                os.path.join(os.path.expanduser("~"), ".oana", "models"),  # User home directory
+            ]
         
         gguf_files = []
         self.models_dir = None
@@ -92,7 +106,13 @@ class AIEngine:
         if not gguf_files:
             print("No GGUF models found in any of the following locations:")
             for dir_path in possible_model_dirs:
-                print(f"  - {dir_path}")
+                print(f"  - {dir_path} (exists: {os.path.exists(dir_path)})")
+            
+            # Try to provide helpful suggestions
+            if getattr(sys, 'frozen', False):
+                print("\nFor packaged executable, ensure models/ folder is next to the .exe file")
+            else:
+                print("\nFor development, run: python download_models.py")
             
         # Priority order: llama-cpp > ollama > transformers > fallback
         if LLAMA_CPP_AVAILABLE and gguf_files:

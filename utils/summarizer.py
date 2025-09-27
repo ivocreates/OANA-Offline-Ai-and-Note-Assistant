@@ -34,29 +34,48 @@ class Summarizer:
     def _ai_summarize(self, text: str, max_length: int, style: str) -> str:
         """Use AI to generate summary"""
         try:
-            # Build summarization prompt based on style
-            if style == "bullet_points":
-                prompt = f"Create a bullet-point summary of the following text in {max_length} words or less:\n\n{text}\n\nBullet-point summary:"
-            elif style == "detailed":
-                prompt = f"Create a detailed summary of the following text in {max_length} words or less, preserving key details and context:\n\n{text}\n\nDetailed summary:"
-            else:  # concise
-                prompt = f"Create a concise summary of the following text in {max_length} words or less:\n\n{text}\n\nConcise summary:"
-                
-            # Truncate text if too long
-            max_input_length = 2000
+            print(f"Starting AI summarization, text length: {len(text)}")
+            
+            # Truncate text if too long for better processing
+            max_input_length = 1500  # Reduced for better reliability
+            truncated_text = text
             if len(text) > max_input_length:
-                text = text[:max_input_length] + "..."
-                prompt = prompt.replace(text, text[:max_input_length] + "...")
+                truncated_text = text[:max_input_length] + "..."
+                print(f"Text truncated to {len(truncated_text)} characters")
+                
+            # Build simplified summarization prompt
+            if style == "bullet_points":
+                prompt = f"Please summarize the following text as bullet points:\n\n{truncated_text}\n\nSummary as bullet points:"
+            elif style == "detailed":
+                prompt = f"Please provide a detailed summary of the following text:\n\n{truncated_text}\n\nDetailed summary:"
+            else:  # concise
+                prompt = f"Please provide a brief summary of the following text:\n\n{truncated_text}\n\nSummary:"
+            
+            print(f"Sending prompt to AI engine, prompt length: {len(prompt)}")
+            
+            # Check AI engine status
+            if not self.ai_engine or not self.ai_engine.is_ready():
+                raise Exception("AI engine is not ready or not available")
                 
             summary = self.ai_engine.generate_response(prompt)
+            print(f"AI response received, length: {len(summary) if summary else 0}")
             
+            if not summary or summary.strip() == "":
+                raise Exception("AI returned empty response")
+                
             # Clean up the response
             summary = self._clean_summary(summary)
             
+            # Ensure summary isn't too long
+            if len(summary) > max_length * 2:  # Allow some flexibility
+                summary = summary[:max_length * 2].rsplit('.', 1)[0] + "."
+                
+            print(f"AI summarization completed successfully, final length: {len(summary)}")
             return summary
             
         except Exception as e:
             print(f"AI summarization failed: {e}")
+            print("Falling back to extractive summarization")
             return self._extractive_summarize(text, max_length)
             
     def _extractive_summarize(self, text: str, max_length: int) -> str:
@@ -178,7 +197,10 @@ class Summarizer:
         
     def _clean_summary(self, summary: str) -> str:
         """Clean AI-generated summary"""
-        # Remove common AI response prefixes
+        if not summary or not isinstance(summary, str):
+            return "Unable to generate summary."
+            
+        # Remove common AI response prefixes/patterns
         prefixes_to_remove = [
             "Here is a summary:",
             "Summary:",
@@ -187,20 +209,52 @@ class Summarizer:
             "Here is a concise summary:",
             "Concise summary:",
             "Detailed summary:",
-            "Bullet-point summary:"
+            "Bullet-point summary:",
+            "Brief summary:",
+            "Please provide",
+            "I'll provide",
+            "Based on the text",
+            "The text discusses"
         ]
         
+        # Clean the summary
+        cleaned = summary.strip()
+        
+        # Remove prefixes
         for prefix in prefixes_to_remove:
-            if summary.lower().startswith(prefix.lower()):
-                summary = summary[len(prefix):].strip()
+            if cleaned.lower().startswith(prefix.lower()):
+                cleaned = cleaned[len(prefix):].strip()
+                
+        # Remove common suffixes that might indicate incomplete responses
+        suffixes_to_remove = [
+            "Error generating response:",
+            "Error with llama-cpp generation:",
+            "AI engine not ready",
+        ]
+        
+        for suffix in suffixes_to_remove:
+            if suffix.lower() in cleaned.lower():
+                # If error message is found, return empty to trigger fallback
+                return ""
                 
         # Remove leading/trailing whitespace and newlines
-        summary = summary.strip()
+        cleaned = cleaned.strip()
         
         # Remove multiple consecutive newlines
-        summary = re.sub(r'\n{3,}', '\n\n', summary)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
         
-        return summary
+        # Remove leading dashes or bullet points if it's not a bullet summary
+        cleaned = re.sub(r'^[-•*]\s*', '', cleaned)
+        
+        # Ensure the summary ends properly (with punctuation)
+        if cleaned and not cleaned.endswith(('.', '!', '?', ':')):
+            cleaned += '.'
+            
+        # If summary is too short, it might be incomplete
+        if len(cleaned.strip()) < 10:
+            return ""
+            
+        return cleaned
         
     def create_notes(self, text: str, note_style: str = "structured") -> str:
         """

@@ -1274,6 +1274,10 @@ class OANA:
             messagebox.showwarning("Warning", "AI engine is not ready")
             return
             
+        if not self.summarizer:
+            messagebox.showwarning("Warning", "Summarizer not initialized")
+            return
+            
         # Get the selected item and find the corresponding document
         selected_item = selection[0]
         doc_name = self.doc_tree.item(selected_item, 'text')
@@ -1288,18 +1292,82 @@ class OANA:
         if not doc_info:
             messagebox.showerror("Error", "Document not found")
             return
+            
+        if not doc_info.get('content'):
+            messagebox.showerror("Error", "Document has no content to summarize")
+            return
         
         def summarize():
             try:
                 self.status_var.set("Generating summary...")
+                print(f"Starting summarization for document: {doc_info['name']}")
+                print(f"Content length: {len(doc_info['content'])} characters")
+                
+                # Check if AI engine is working
+                if not self.ai_engine.is_ready():
+                    raise Exception("AI engine is not ready")
+                
                 summary = self.summarizer.summarize(doc_info['content'])
+                
+                if not summary or summary.strip() == "":
+                    raise Exception("Generated summary is empty")
+                
+                print(f"Summary generated successfully: {len(summary)} characters")
                 self.add_to_chat("AI", f"📄 Summary of '{doc_info['name']}':\n\n{summary}")
+                
             except Exception as e:
-                self.add_to_chat("System", f"Error generating summary: {str(e)}")
+                error_msg = f"Error generating summary: {str(e)}"
+                print(error_msg)
+                self.add_to_chat("System", error_msg)
+                
+                # Try fallback summarization
+                try:
+                    fallback_summary = self._create_fallback_summary(doc_info['content'])
+                    self.add_to_chat("System", f"📄 Fallback Summary of '{doc_info['name']}':\n\n{fallback_summary}")
+                except Exception as fallback_error:
+                    self.add_to_chat("System", f"Fallback summary also failed: {str(fallback_error)}")
+                    
             finally:
                 self.status_var.set("Ready")
                 
         threading.Thread(target=summarize, daemon=True).start()
+    
+    def _create_fallback_summary(self, content: str, max_length: int = 300) -> str:
+        """Create a simple fallback summary when AI fails"""
+        if not content or len(content.strip()) == 0:
+            return "No content available for summarization."
+            
+        # Split into sentences
+        sentences = []
+        for sentence in content.replace('\n', ' ').split('.'):
+            sentence = sentence.strip()
+            if sentence and len(sentence) > 10:  # Filter out very short fragments
+                sentences.append(sentence + '.')
+        
+        if not sentences:
+            # If no proper sentences, just take the first part
+            words = content.split()
+            if len(words) > 50:
+                return ' '.join(words[:50]) + "..."
+            else:
+                return content
+                
+        # Take first few sentences up to max_length
+        summary = ""
+        for sentence in sentences[:5]:  # Max 5 sentences
+            if len(summary) + len(sentence) <= max_length:
+                summary += sentence + " "
+            else:
+                break
+                
+        if not summary:
+            summary = sentences[0]  # At least include first sentence
+            
+        # Ensure we don't exceed max_length
+        if len(summary) > max_length:
+            summary = summary[:max_length].rsplit(' ', 1)[0] + "..."
+            
+        return summary.strip()
         
     def remove_selected(self):
         """Remove selected document"""
@@ -1669,17 +1737,58 @@ class OANA:
             messagebox.showwarning("Warning", "No documents to summarize")
             return
             
+        if not self.ai_engine or not self.ai_engine.is_ready():
+            messagebox.showwarning("Warning", "AI engine is not ready")
+            return
+            
+        if not self.summarizer:
+            messagebox.showwarning("Warning", "Summarizer not initialized")
+            return
+            
         def summarize():
             try:
                 self.status_var.set("Generating summary of all documents...")
+                print(f"Starting summarization of {len(self.uploaded_documents)} documents")
                 
-                all_content = "\n\n".join([doc['content'] for doc in self.uploaded_documents])
-                summary = self.summarizer.summarize(all_content, max_length=500, style="detailed")
+                # Combine content with document names
+                combined_content = ""
+                for i, doc in enumerate(self.uploaded_documents, 1):
+                    if doc.get('content'):
+                        combined_content += f"\n\n--- Document {i}: {doc['name']} ---\n{doc['content']}"
                 
-                self.add_to_chat("AI", f"📄 Summary of all {len(self.uploaded_documents)} documents:\n\n{summary}")
+                if not combined_content.strip():
+                    raise Exception("No content found in uploaded documents")
+                
+                print(f"Combined content length: {len(combined_content)} characters")
+                
+                summary = self.summarizer.summarize(combined_content, max_length=600, style="detailed")
+                
+                if not summary or summary.strip() == "":
+                    raise Exception("Generated summary is empty")
+                
+                doc_list = ", ".join([doc['name'] for doc in self.uploaded_documents])
+                self.add_to_chat("AI", f"📄 Summary of {len(self.uploaded_documents)} documents ({doc_list}):\n\n{summary}")
                 
             except Exception as e:
-                self.add_to_chat("System", f"Error generating summary: {str(e)}")
+                error_msg = f"Error generating summary: {str(e)}"
+                print(error_msg)
+                self.add_to_chat("System", error_msg)
+                
+                # Try fallback summary for all docs
+                try:
+                    fallback_summaries = []
+                    for doc in self.uploaded_documents:
+                        if doc.get('content'):
+                            doc_summary = self._create_fallback_summary(doc['content'], 100)
+                            fallback_summaries.append(f"• {doc['name']}: {doc_summary}")
+                    
+                    if fallback_summaries:
+                        combined_fallback = "\n".join(fallback_summaries)
+                        self.add_to_chat("System", f"📄 Fallback Summary of {len(self.uploaded_documents)} documents:\n\n{combined_fallback}")
+                
+                except Exception as fallback_error:
+                    self.add_to_chat("System", f"Fallback summary also failed: {str(fallback_error)}")
+                    
             finally:
                 self.status_var.set("Ready")
                 
